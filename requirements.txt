@@ -1,0 +1,4 @@
+# 微信读书管家后端依赖
+# Web 服务与数据库均使用 Python 标准库（http.server / sqlite3），无需额外框架。
+# 仅加密模块依赖 cryptography（用于 AES 安全存储微信读书 Cookie）。
+cryptography>=42.0.0

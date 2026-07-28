@@ -1,0 +1,12 @@
+{
+  "description": "读书管家小程序",
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "minified": false
+  },
+  "compileType": "miniprogram",
+  "appid": "touristappid",
+  "projectname": "we-read-butler",
+  "miniprogramRoot": "./"
+}

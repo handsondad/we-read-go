@@ -1,0 +1,9 @@
+<view class="container">
+  <view class="title">共读打卡榜</view>
+  <view class="row" wx:for="{{board}}" wx:key="name">
+    <text class="rank rank-{{index < 3 ? index+1 : 'n'}}">{{index + 1}}</text>
+    <text class="name">{{item.name}}</text>
+    <text class="stat">连续 {{item.streak}} 天 · 累计 {{item.total}} 次</text>
+  </view>
+  <view wx:if="{{board.length === 0}}" class="empty">还没有人打卡，快去当第一名！</view>
+</view>

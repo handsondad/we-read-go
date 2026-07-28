@@ -1,0 +1,27 @@
+<view class="container">
+  <view class="card">
+    <text class="h">我的昵称</text>
+    <input class="nick" placeholder="用于共读榜展示" value="{{nickname}}" bindinput="onNick" />
+    <button class="save" size="mini" bindtap="saveNick">保存昵称</button>
+  </view>
+
+  <view class="card">
+    <text class="h">微信读书同步</text>
+    <text class="tip">{{status.hasCookie ? '已绑定' : '未绑定：粘贴网页端 Cookie 后点同步书架'}}</text>
+    <text class="tip" wx:if="{{status.lastSyncAt}}">上次同步：{{status.lastSyncAt}}</text>
+    <textarea class="cookie" placeholder="从 weread.qq.com 复制的 Cookie" value="{{cookie}}" bindinput="onCookie" />
+    <button class="save" size="mini" bindtap="saveCookie">保存 Cookie</button>
+  </view>
+
+  <view class="card">
+    <text class="h">阅读提醒</text>
+    <view class="rem" wx:for="{{reminders}}" wx:key="id">
+      <text>{{item.time}} · {{item.enabled ? '已开启' : '已关闭'}}</text>
+      <switch checked="{{item.enabled}}" bindchange="toggle" data-id="{{item.id}}" />
+    </view>
+    <picker mode="time" value="{{newTime}}" bindchange="onTime">
+      <view class="pick">提醒时间：{{newTime}}</view>
+    </picker>
+    <button class="save" size="mini" bindtap="addReminder">添加提醒</button>
+  </view>
+</view>

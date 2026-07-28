@@ -1,0 +1,22 @@
+<view class="container">
+  <view class="bar">
+    <button class="sync" size="mini" bindtap="sync" loading="{{syncing}}">同步微信读书</button>
+  </view>
+
+  <view class="add">
+    <input class="inp" placeholder="书名" value="{{newTitle}}" bindinput="onTitle" />
+    <input class="inp" placeholder="作者" value="{{newAuthor}}" bindinput="onAuthor" />
+    <button class="addbtn" size="mini" bindtap="addManual">手动添加</button>
+  </view>
+
+  <view class="book" wx:for="{{books}}" wx:key="id">
+    <image class="cover" src="{{item.cover}}" mode="aspectFill" />
+    <view class="info">
+      <text class="title">{{item.title}}</text>
+      <text class="author">{{item.author}}</text>
+      <text class="prog">{{item.status}} · {{item.progress}}%</text>
+    </view>
+  </view>
+
+  <view wx:if="{{books.length === 0}}" class="empty">还没有书，先同步或手动添加吧</view>
+</view>

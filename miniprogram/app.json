@@ -1,0 +1,20 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/bookshelf/bookshelf",
+    "pages/report/report",
+    "pages/community/community",
+    "pages/profile/profile"
+  ],
+  "window": {
+    "navigationBarTitleText": "读书管家",
+    "navigationBarBackgroundColor": "#2b2b2b",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#f5f5f5"
+  },
+  "navigateToMiniProgramAppIdList": [
+    "wx8d9bf9c0b4c3f5e1"
+  ],
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

@@ -1,0 +1,26 @@
+<view class="container" wx:if="{{rep}}">
+  <view class="big">{{rep.streak}}<text class="unit"> 天连续打卡</text></view>
+
+  <view class="grid">
+    <view class="cell"><text class="num">{{rep.weekCheckins}}/7</text><text class="lab">本周打卡</text></view>
+    <view class="cell"><text class="num">{{rep.totalCheckins}}</text><text class="lab">累计打卡</text></view>
+    <view class="cell"><text class="num">{{rep.booksReading}}</text><text class="lab">在读</text></view>
+    <view class="cell"><text class="num">{{rep.booksFinished}}</text><text class="lab">读完</text></view>
+  </view>
+
+  <view class="card">
+    <text class="lab">本周打卡进度</text>
+    <view class="track">
+      <view class="fill" style="width:{{rep.weekCheckins / 7 * 100}}%"></view>
+    </view>
+  </view>
+
+  <view class="read">微信读书累计阅读：{{readingText}}</view>
+
+  <button class="primary" open-type="share">分享我的战绩</button>
+  <button class="ghost" bindtap="goCommunity">看看共读榜 →</button>
+</view>
+
+<view class="container" wx:else>
+  <text class="tip">加载中…</text>
+</view>

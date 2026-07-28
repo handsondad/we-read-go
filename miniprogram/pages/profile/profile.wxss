@@ -1,0 +1,51 @@
+.card {
+  background: #fff;
+  border-radius: 12rpx;
+  padding: 24rpx;
+  margin-bottom: 24rpx;
+}
+.h {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #2b2b2b;
+}
+.tip {
+  display: block;
+  color: #888;
+  font-size: 24rpx;
+  margin: 12rpx 0;
+}
+.cookie {
+  width: 100%;
+  height: 160rpx;
+  background: #f5f5f5;
+  border-radius: 8rpx;
+  padding: 16rpx;
+  box-sizing: border-box;
+  font-size: 24rpx;
+}
+.save {
+  background: #07c160;
+  color: #fff;
+  margin-top: 16rpx;
+}
+.nick {
+  background: #f5f5f5;
+  border-radius: 8rpx;
+  padding: 12rpx 16rpx;
+  font-size: 28rpx;
+  margin: 12rpx 0;
+}
+.rem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid #eee;
+  font-size: 28rpx;
+}
+.pick {
+  padding: 16rpx 0;
+  color: #2b2b2b;
+  font-size: 28rpx;
+}

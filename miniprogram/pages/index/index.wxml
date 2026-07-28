@@ -1,0 +1,26 @@
+<view class="container">
+  <view class="hero">
+    <text class="streak">连续打卡 {{status.streak}} 天</text>
+    <text class="sub">今天读了吗？</text>
+  </view>
+
+  <button class="primary" bindtap="checkIn" disabled="{{status.todayDone}}">
+    {{status.todayDone ? '今日已打卡 ✓' : '今日打卡'}}
+  </button>
+
+  <button class="ghost" bindtap="goWeread">去微信读书阅读 →</button>
+  <button class="ghost" bindtap="goReport">我的阅读报告</button>
+  <button class="ghost" bindtap="goCommunity">共读打卡榜</button>
+
+  <view class="row">
+    <button class="link" bindtap="goBookshelf">我的书架</button>
+    <button class="link" bindtap="goProfile">设置</button>
+  </view>
+
+  <view class="history" wx:if="{{status.history.length}}">
+    <text class="h-title">最近打卡</text>
+    <view class="days">
+      <text class="day" wx:for="{{status.history}}" wx:key="*this">{{item}}</text>
+    </view>
+  </view>
+</view>

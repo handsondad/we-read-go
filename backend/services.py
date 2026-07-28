@@ -9,7 +9,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from weread import Client
+from weread import Client, WereadError
 
 
 class ServiceError(Exception):
@@ -118,7 +118,8 @@ class Services:
                 """INSERT INTO weread_accounts(user_id, cookie, wr_vid)
                    VALUES(?,?,?)
                    ON CONFLICT(user_id) DO UPDATE SET
-                     cookie=excluded.cookie, wr_vid=excluded.wr_vid, last_sync_at=NULL""",
+                     cookie=excluded.cookie, wr_vid=excluded.wr_vid,
+                     last_sync_at=NULL, last_sync_error=NULL, syncing=0""",
                 (user_id, enc, vid),
             )
             self.conn.commit()
@@ -126,7 +127,7 @@ class Services:
     def weread_status(self, user_id: int) -> dict:
         with self.lock:
             row = self.conn.execute(
-                """SELECT id, wr_vid, last_sync_at,
+                """SELECT id, wr_vid, last_sync_at, last_sync_error, syncing,
                           (cookie IS NOT NULL AND cookie<>'') AS has_cookie
                    FROM weread_accounts WHERE user_id=?""",
                 (user_id,),
@@ -140,9 +141,12 @@ class Services:
             "wrVid": info.get("wr_vid") or "",
             "wrName": info.get("wr_name") or "",
             "hasCookie": bool(info["has_cookie"]),
+            "syncing": bool(info.get("syncing")),
         }
         if info.get("last_sync_at"):
             out["lastSyncAt"] = info["last_sync_at"]
+        if info.get("last_sync_error"):
+            out["lastSyncError"] = info["last_sync_error"]
         return out
 
     def _weread_cookie(self, user_id: int) -> str:
@@ -156,63 +160,95 @@ class Services:
 
     # ---------- 同步微信读书数据 ----------
 
-    def sync_weread(self, user_id: int) -> None:
-        cookie = self._weread_cookie(user_id)
-        client = Client(cookie, self.cfg.weread_ua)
+    def sync_weread(self, user_id: int) -> dict:
+        """同步微信读书书架与阅读统计。
 
-        books = client.shelf()
-        try:
-            notes = client.notebook()
-        except Exception:
-            notes = {}
-
-        for b in books:
-            book_id = b.get("bookId")
-            if not book_id:
-                continue
-            progress = int(b.get("progress", 0) or 0)
-            if not progress:
-                try:
-                    progress = client.read_info(book_id)
-                except Exception:
-                    progress = 0
-            with self.lock:
-                self.conn.execute(
-                    """INSERT INTO books(user_id, book_id, title, author, cover, source, status, progress, added_at)
-                       VALUES(?,?,?,?,?, 'weread', ?, ?, CURRENT_TIMESTAMP)
-                       ON CONFLICT(user_id, book_id) DO UPDATE SET
-                         title=excluded.title, author=excluded.author, cover=excluded.cover,
-                         status=excluded.status, progress=excluded.progress""",
-                    (
-                        user_id,
-                        book_id,
-                        b.get("title", ""),
-                        b.get("author", ""),
-                        b.get("cover", ""),
-                        b.get("status", "reading"),
-                        progress,
-                    ),
-                )
-                self.conn.commit()
-            _ = notes  # 笔记数量可在此扩展存储
-
-        try:
-            raw = client.read_data()
-            with self.lock:
-                self.conn.execute(
-                    "INSERT INTO user_stats(user_id, date, payload) VALUES(?,?,?)",
-                    (user_id, time.strftime("%Y-%m-%d"), raw.decode("utf-8", "ignore")),
-                )
-                self.conn.commit()
-        except Exception:
-            pass
-
+        设计目标：永不向上层抛出未捕获异常（保证核心打卡/提醒不受影响），
+        返回结构化结果 {ok, synced, message, cookieInvalid}，并落库 last_sync_at /
+        last_sync_error / syncing 供前端轮询展示。失败时仅记录错误，不污染已同步的数据。
+        """
         with self.lock:
             self.conn.execute(
-                "UPDATE weread_accounts SET last_sync_at=CURRENT_TIMESTAMP WHERE user_id=?",
-                (user_id,),
+                "UPDATE weread_accounts SET syncing=1 WHERE user_id=?", (user_id,)
             )
             self.conn.commit()
+
+        result = {"ok": True, "synced": 0, "message": "同步完成", "cookieInvalid": False}
+        try:
+            cookie = self._weread_cookie(user_id)
+            client = Client(cookie, self.cfg.weread_ua)
+
+            books = client.shelf()
+            synced = 0
+            for b in books:
+                book_id = b.get("bookId")
+                if not book_id:
+                    continue
+                progress = int(b.get("progress", 0) or 0)
+                if not progress:
+                    progress = client.read_info(book_id)
+                with self.lock:
+                    self.conn.execute(
+                        """INSERT INTO books(user_id, book_id, title, author, cover, source, status, progress, added_at)
+                           VALUES(?,?,?,?,?, 'weread', ?, ?, CURRENT_TIMESTAMP)
+                           ON CONFLICT(user_id, book_id) DO UPDATE SET
+                             title=excluded.title, author=excluded.author, cover=excluded.cover,
+                             status=excluded.status, progress=excluded.progress""",
+                        (
+                            user_id,
+                            book_id,
+                            b.get("title", ""),
+                            b.get("author", ""),
+                            b.get("cover", ""),
+                            b.get("status", "reading"),
+                            progress,
+                        ),
+                    )
+                    self.conn.commit()
+                synced += 1
+
+            try:
+                raw = client.read_data()
+                with self.lock:
+                    self.conn.execute(
+                        "INSERT INTO user_stats(user_id, date, payload) VALUES(?,?,?)",
+                        (user_id, time.strftime("%Y-%m-%d"), raw.decode("utf-8", "ignore")),
+                    )
+                    self.conn.commit()
+            except Exception:
+                pass  # 阅读统计为可选项，失败不影响书架同步结果
+
+            result["synced"] = synced
+            with self.lock:
+                self.conn.execute(
+                    "UPDATE weread_accounts SET last_sync_at=CURRENT_TIMESTAMP, last_sync_error=NULL "
+                    "WHERE user_id=?",
+                    (user_id,),
+                )
+                self.conn.commit()
+        except WereadError as e:
+            result = {"ok": False, "synced": 0, "message": e.msg, "cookieInvalid": e.cookie_invalid}
+            with self.lock:
+                self.conn.execute(
+                    "UPDATE weread_accounts SET last_sync_error=? WHERE user_id=?",
+                    (e.msg, user_id),
+                )
+                self.conn.commit()
+        except Exception as e:
+            result = {"ok": False, "synced": 0, "message": f"同步出错：{e}", "cookieInvalid": False}
+            with self.lock:
+                self.conn.execute(
+                    "UPDATE weread_accounts SET last_sync_error=? WHERE user_id=?",
+                    (str(e), user_id),
+                )
+                self.conn.commit()
+        finally:
+            with self.lock:
+                self.conn.execute(
+                    "UPDATE weread_accounts SET syncing=0 WHERE user_id=?", (user_id,)
+                )
+                self.conn.commit()
+        return result
 
     # ---------- 书籍 ----------
 
@@ -260,6 +296,112 @@ class Services:
             "status": "reading",
             "progress": 0,
             "addedAt": added_at or "",
+        }
+
+    # ---------- 书单 ----------
+
+    _BOOKLIST_STATUS = ("want", "reading", "finished")
+
+    def add_booklist(self, user_id, title, author="", status="want", rating=0, note="") -> dict:
+        title = (title or "").strip()
+        if not title:
+            raise ServiceError("书名不能为空")
+        if len(title) > 80:
+            raise ServiceError("书名最多 80 字")
+        if status not in self._BOOKLIST_STATUS:
+            status = "want"
+        try:
+            rating = int(rating)
+        except (TypeError, ValueError):
+            rating = 0
+        rating = max(0, min(5, rating))
+        with self.lock:
+            cur = self.conn.execute(
+                """INSERT INTO booklists(user_id, title, author, status, rating, note)
+                   VALUES(?,?,?,?,?,?)""",
+                (user_id, title, (author or "").strip(), status, rating, (note or "").strip()),
+            )
+            self.conn.commit()
+            created_at = self.conn.execute(
+                "SELECT created_at FROM booklists WHERE id=?", (cur.lastrowid,)
+            ).fetchone()["created_at"]
+        return self._booklist_map(
+            {
+                "id": cur.lastrowid,
+                "title": title,
+                "author": author or "",
+                "status": status,
+                "rating": rating,
+                "note": note or "",
+                "created_at": created_at or "",
+            }
+        )
+
+    def list_booklists(self, user_id) -> list:
+        with self.lock:
+            rows = self.conn.execute(
+                """SELECT id, title, author, status, rating, note, created_at
+                   FROM booklists WHERE user_id=? ORDER BY id DESC""",
+                (user_id,),
+            ).fetchall()
+        return [self._booklist_map(dict(r)) for r in rows]
+
+    def update_booklist(self, user_id, bid, fields) -> dict:
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT id FROM booklists WHERE id=? AND user_id=?", (bid, user_id)
+            ).fetchone()
+            if row is None:
+                raise ServiceError("书单条目不存在", 404)
+            sets, args = [], []
+            if "title" in fields:
+                t = (fields["title"] or "").strip()
+                if not t:
+                    raise ServiceError("书名不能为空")
+                sets.append("title=?"); args.append(t)
+            if "author" in fields:
+                sets.append("author=?"); args.append((fields["author"] or "").strip())
+            if "status" in fields:
+                if fields["status"] not in self._BOOKLIST_STATUS:
+                    raise ServiceError("非法的阅读状态")
+                sets.append("status=?"); args.append(fields["status"])
+            if "rating" in fields:
+                try:
+                    r = int(fields["rating"])
+                except (TypeError, ValueError):
+                    r = 0
+                sets.append("rating=?"); args.append(max(0, min(5, r)))
+            if "note" in fields:
+                sets.append("note=?"); args.append((fields["note"] or "").strip())
+            if sets:
+                self.conn.execute(
+                    "UPDATE booklists SET %s WHERE id=? AND user_id=?"
+                    % ",".join(sets),
+                    args + [bid, user_id],
+                )
+                self.conn.commit()
+        return {"ok": True}
+
+    def delete_booklist(self, user_id, bid) -> dict:
+        with self.lock:
+            cur = self.conn.execute(
+                "DELETE FROM booklists WHERE id=? AND user_id=?", (bid, user_id)
+            )
+            self.conn.commit()
+            if cur.rowcount == 0:
+                raise ServiceError("书单条目不存在", 404)
+        return {"ok": True}
+
+    @staticmethod
+    def _booklist_map(r) -> dict:
+        return {
+            "id": r["id"],
+            "title": r["title"] or "",
+            "author": r["author"] or "",
+            "status": r["status"] or "want",
+            "rating": r["rating"] or 0,
+            "note": r["note"] or "",
+            "createdAt": r["created_at"] or "",
         }
 
     # ---------- 打卡 ----------
@@ -459,7 +601,7 @@ class Services:
     def leaderboard(self, limit: int = 20) -> list:
         with self.lock:
             users = self.conn.execute(
-                "SELECT id, openid, nickname FROM users"
+                "SELECT id, openid, nickname, avatar FROM users"
             ).fetchall()
             totals_rows = self.conn.execute(
                 "SELECT user_id, COUNT(*) AS c FROM checkins GROUP BY user_id"
@@ -470,7 +612,9 @@ class Services:
             name = u["nickname"] or mask_openid(u["openid"])
             board.append(
                 {
+                    "id": u["id"],
                     "name": name,
+                    "avatar": u["avatar"] or "",
                     "streak": self._streak(u["id"]),
                     "total": totals.get(u["id"], 0),
                 }
@@ -478,18 +622,190 @@ class Services:
         board.sort(key=lambda x: x["total"], reverse=True)
         return board[:limit] if limit > 0 else board
 
+    # ---------- 心得帖 ----------
+
+    def create_post(self, user_id: int, content: str, book_title: str = "", camp_id: int = 0) -> dict:
+        content = (content or "").strip()
+        if not content:
+            raise ServiceError("心得内容不能为空")
+        if len(content) > 500:
+            raise ServiceError("心得内容最多 500 字")
+        if camp_id:
+            with self.lock:
+                exists = self.conn.execute(
+                    "SELECT 1 FROM camps WHERE id=?", (camp_id,)
+                ).fetchone()
+            if not exists:
+                raise ServiceError("共读营不存在", 404)
+        with self.lock:
+            cur = self.conn.execute(
+                "INSERT INTO posts(user_id, camp_id, content, book_title) VALUES(?,?,?,?)",
+                (user_id, camp_id or None, content, (book_title or "").strip()),
+            )
+            self.conn.commit()
+        return {"id": cur.lastrowid}
+
+    def list_posts(self, user_id: int, camp_id: int = 0, limit: int = 50) -> list:
+        sql = """SELECT p.id, p.content, p.book_title, p.camp_id, p.created_at,
+                        u.nickname, u.openid, u.avatar,
+                        (SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id=p.id) AS likes,
+                        EXISTS(SELECT 1 FROM post_likes pl
+                               WHERE pl.post_id=p.id AND pl.user_id=?) AS liked
+                 FROM posts p JOIN users u ON u.id=p.user_id"""
+        args = [user_id]
+        if camp_id:
+            sql += " WHERE p.camp_id=?"
+            args.append(camp_id)
+        sql += " ORDER BY p.id DESC LIMIT ?"
+        args.append(limit)
+        with self.lock:
+            rows = self.conn.execute(sql, args).fetchall()
+        return [
+            {
+                "id": r["id"],
+                "name": r["nickname"] or mask_openid(r["openid"] or ""),
+                "avatar": r["avatar"] or "",
+                "content": r["content"],
+                "bookTitle": r["book_title"] or "",
+                "campId": r["camp_id"] or 0,
+                "likes": r["likes"],
+                "likedByMe": bool(r["liked"]),
+                "createdAt": r["created_at"] or "",
+            }
+            for r in rows
+        ]
+
+    def toggle_like(self, user_id: int, post_id: int) -> dict:
+        with self.lock:
+            if not self.conn.execute("SELECT 1 FROM posts WHERE id=?", (post_id,)).fetchone():
+                raise ServiceError("帖子不存在", 404)
+            cur = self.conn.execute(
+                "INSERT OR IGNORE INTO post_likes(post_id, user_id) VALUES(?,?)",
+                (post_id, user_id),
+            )
+            liked = cur.rowcount > 0
+            if not liked:
+                self.conn.execute(
+                    "DELETE FROM post_likes WHERE post_id=? AND user_id=?",
+                    (post_id, user_id),
+                )
+            self.conn.commit()
+            likes = self.conn.execute(
+                "SELECT COUNT(*) FROM post_likes WHERE post_id=?", (post_id,)
+            ).fetchone()[0]
+        return {"liked": liked, "likes": likes}
+
+    # ---------- 共读营 ----------
+
+    def create_camp(self, user_id: int, name: str, book_title: str = "") -> dict:
+        name = (name or "").strip()
+        if not name:
+            raise ServiceError("共读营名称不能为空")
+        if len(name) > 30:
+            raise ServiceError("共读营名称最多 30 字")
+        with self.lock:
+            cur = self.conn.execute(
+                "INSERT INTO camps(name, book_title, creator_id) VALUES(?,?,?)",
+                (name, (book_title or "").strip(), user_id),
+            )
+            self.conn.execute(
+                "INSERT OR IGNORE INTO camp_members(camp_id, user_id) VALUES(?,?)",
+                (cur.lastrowid, user_id),
+            )
+            self.conn.commit()
+        return {"id": cur.lastrowid}
+
+    def list_camps(self, user_id: int) -> list:
+        with self.lock:
+            rows = self.conn.execute(
+                """SELECT c.id, c.name, c.book_title, c.created_at,
+                          (SELECT COUNT(*) FROM camp_members m WHERE m.camp_id=c.id) AS members,
+                          EXISTS(SELECT 1 FROM camp_members m
+                                 WHERE m.camp_id=c.id AND m.user_id=?) AS joined
+                   FROM camps c ORDER BY c.id DESC""",
+                (user_id,),
+            ).fetchall()
+        return [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "bookTitle": r["book_title"] or "",
+                "members": r["members"],
+                "joined": bool(r["joined"]),
+                "createdAt": r["created_at"] or "",
+            }
+            for r in rows
+        ]
+
+    def join_camp(self, user_id: int, camp_id: int) -> dict:
+        with self.lock:
+            if not self.conn.execute("SELECT 1 FROM camps WHERE id=?", (camp_id,)).fetchone():
+                raise ServiceError("共读营不存在", 404)
+            cur = self.conn.execute(
+                "INSERT OR IGNORE INTO camp_members(camp_id, user_id) VALUES(?,?)",
+                (camp_id, user_id),
+            )
+            self.conn.commit()
+        return {"joined": True, "firstTime": cur.rowcount > 0}
+
+    def camp_detail(self, user_id: int, camp_id: int) -> dict:
+        with self.lock:
+            camp = self.conn.execute(
+                "SELECT id, name, book_title, creator_id, created_at FROM camps WHERE id=?",
+                (camp_id,),
+            ).fetchone()
+            if camp is None:
+                raise ServiceError("共读营不存在", 404)
+            members = self.conn.execute(
+                """SELECT u.id, u.nickname, u.openid, u.avatar,
+                          (SELECT COUNT(*) FROM checkins ck WHERE ck.user_id=u.id) AS total
+                   FROM camp_members m JOIN users u ON u.id=m.user_id
+                   WHERE m.camp_id=? ORDER BY m.id""",
+                (camp_id,),
+            ).fetchall()
+        member_list = []
+        for m in members:  # _streak 自带加锁，须在锁外调用
+            member_list.append(
+                {
+                    "id": m["id"],
+                    "name": m["nickname"] or mask_openid(m["openid"] or ""),
+                    "avatar": m["avatar"] or "",
+                    "streak": self._streak(m["id"]),
+                    "total": m["total"],
+                }
+            )
+        member_list.sort(key=lambda x: x["total"], reverse=True)
+        return {
+            "id": camp["id"],
+            "name": camp["name"],
+            "bookTitle": camp["book_title"] or "",
+            "createdAt": camp["created_at"] or "",
+            "joined": any(m["id"] == user_id for m in members),
+            "members": member_list,
+            "posts": self.list_posts(user_id, camp_id=camp_id),
+        }
+
     def get_profile(self, user_id: int) -> dict:
         with self.lock:
             row = self.conn.execute(
-                "SELECT nickname FROM users WHERE id=?", (user_id,)
+                "SELECT nickname, avatar FROM users WHERE id=?", (user_id,)
             ).fetchone()
-        return {"nickname": row["nickname"] if row else ""}
+        return {
+            "nickname": row["nickname"] if row else "",
+            "avatar": (row["avatar"] or "") if row else "",
+        }
 
-    def update_profile(self, user_id: int, nickname: str) -> None:
+    def update_profile(self, user_id: int, nickname: str, avatar=None) -> None:
         with self.lock:
-            self.conn.execute(
-                "UPDATE users SET nickname=? WHERE id=?", (nickname, user_id)
-            )
+            if avatar is not None:
+                self.conn.execute(
+                    "UPDATE users SET nickname=?, avatar=? WHERE id=?",
+                    (nickname, avatar, user_id),
+                )
+            else:
+                self.conn.execute(
+                    "UPDATE users SET nickname=? WHERE id=?", (nickname, user_id)
+                )
             self.conn.commit()
 
 

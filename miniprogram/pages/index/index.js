@@ -33,6 +33,9 @@ Page({
   goCommunity() {
     wx.navigateTo({ url: '/pages/community/community' })
   },
+  goBooklist() {
+    wx.navigateTo({ url: '/pages/booklist/booklist' })
+  },
   goProfile() {
     wx.navigateTo({ url: '/pages/profile/profile' })
   }

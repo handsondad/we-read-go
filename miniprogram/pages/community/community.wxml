@@ -1,9 +1,97 @@
 <view class="container">
-  <view class="title">共读打卡榜</view>
-  <view class="row" wx:for="{{board}}" wx:key="name">
-    <text class="rank rank-{{index < 3 ? index+1 : 'n'}}">{{index + 1}}</text>
-    <text class="name">{{item.name}}</text>
-    <text class="stat">连续 {{item.streak}} 天 · 累计 {{item.total}} 次</text>
+  <!-- Tab 切换 -->
+  <view class="tabs">
+    <text class="tab {{tab === 'board' ? 'on' : ''}}" bindtap="switchTab" data-tab="board">打卡榜</text>
+    <text class="tab {{tab === 'posts' ? 'on' : ''}}" bindtap="switchTab" data-tab="posts">心得帖</text>
+    <text class="tab {{tab === 'camps' ? 'on' : ''}}" bindtap="switchTab" data-tab="camps">共读营</text>
   </view>
-  <view wx:if="{{board.length === 0}}" class="empty">还没有人打卡，快去当第一名！</view>
+
+  <!-- 打卡榜 -->
+  <block wx:if="{{tab === 'board'}}">
+    <view class="row" wx:for="{{board}}" wx:key="id">
+      <image wx:if="{{item.avatar}}" class="av" src="{{item.avatar}}" mode="aspectFill" />
+      <text class="rank rank-{{index < 3 ? index+1 : 'n'}}">{{index + 1}}</text>
+      <text class="name">{{item.name}}</text>
+      <text class="stat">连续 {{item.streak}} 天 · 累计 {{item.total}} 次</text>
+    </view>
+    <view wx:if="{{board.length === 0}}" class="empty">还没有人打卡，快去当第一名！</view>
+  </block>
+
+  <!-- 心得帖 -->
+  <block wx:if="{{tab === 'posts'}}">
+    <view class="composer">
+      <textarea class="draft" placeholder="写下今天的读书心得…（最多 500 字）" maxlength="500"
+        value="{{draft}}" bindinput="onDraft"></textarea>
+      <input class="book-input" placeholder="关联书名（可选）" value="{{draftBook}}" bindinput="onDraftBook" />
+      <button class="primary small" bindtap="publish" disabled="{{posting}}">发布心得</button>
+    </view>
+
+    <view class="post" wx:for="{{posts}}" wx:key="id">
+      <view class="post-head">
+        <image wx:if="{{item.avatar}}" class="av sm" src="{{item.avatar}}" mode="aspectFill" />
+        <text class="name">{{item.name}}</text>
+        <text class="time">{{item.createdAt}}</text>
+      </view>
+      <text class="book" wx:if="{{item.bookTitle}}">《{{item.bookTitle}}》</text>
+      <text class="content">{{item.content}}</text>
+      <view class="post-foot">
+        <text class="like {{item.likedByMe ? 'liked' : ''}}" bindtap="toggleLike" data-id="{{item.id}}">
+          {{item.likedByMe ? '已赞' : '点赞'}} {{item.likes}}
+        </text>
+      </view>
+    </view>
+    <view wx:if="{{posts.length === 0}}" class="empty">还没有心得，写下第一篇吧！</view>
+  </block>
+
+  <!-- 共读营 -->
+  <block wx:if="{{tab === 'camps'}}">
+    <!-- 营详情 -->
+    <block wx:if="{{campDetail}}">
+      <view class="camp-detail">
+        <view class="camp-head">
+          <text class="camp-name">{{campDetail.name}}</text>
+          <text class="back" bindtap="closeCamp">← 返回</text>
+        </view>
+        <text class="book" wx:if="{{campDetail.bookTitle}}">共读书目：《{{campDetail.bookTitle}}》</text>
+        <view class="sub-title">成员打卡（{{campDetail.members.length}} 人）</view>
+      <view class="row" wx:for="{{campDetail.members}}" wx:key="id">
+        <image wx:if="{{item.avatar}}" class="av" src="{{item.avatar}}" mode="aspectFill" />
+        <text class="rank rank-{{index < 3 ? index+1 : 'n'}}">{{index + 1}}</text>
+        <text class="name">{{item.name}}</text>
+        <text class="stat">连续 {{item.streak}} 天 · 累计 {{item.total}} 次</text>
+      </view>
+        <view class="sub-title">营内心得</view>
+        <view class="post" wx:for="{{campDetail.posts}}" wx:key="id">
+          <view class="post-head">
+            <image wx:if="{{item.avatar}}" class="av sm" src="{{item.avatar}}" mode="aspectFill" />
+            <text class="name">{{item.name}}</text>
+            <text class="time">{{item.createdAt}}</text>
+          </view>
+          <text class="content">{{item.content}}</text>
+        </view>
+        <view wx:if="{{campDetail.posts.length === 0}}" class="empty">营里还没有心得</view>
+      </view>
+    </block>
+
+    <!-- 营列表 -->
+    <block wx:else>
+      <button class="ghost small" bindtap="toggleCampForm">{{showCampForm ? '收起' : '+ 创建共读营'}}</button>
+      <view class="composer" wx:if="{{showCampForm}}">
+        <input class="book-input" placeholder="共读营名称（必填）" maxlength="30" value="{{campName}}" bindinput="onCampName" />
+        <input class="book-input" placeholder="共读书目（可选）" value="{{campBook}}" bindinput="onCampBook" />
+        <button class="primary small" bindtap="createCamp">创建</button>
+      </view>
+
+      <view class="camp" wx:for="{{camps}}" wx:key="id" bindtap="openCamp" data-id="{{item.id}}">
+        <view class="camp-info">
+          <text class="camp-name">{{item.name}}</text>
+          <text class="stat" wx:if="{{item.bookTitle}}">《{{item.bookTitle}}》</text>
+          <text class="stat">{{item.members}} 人参与</text>
+        </view>
+        <button wx:if="{{!item.joined}}" class="primary small join-btn" catchtap="joinCamp" data-id="{{item.id}}">加入</button>
+        <text wx:else class="joined-tag">已加入</text>
+      </view>
+      <view wx:if="{{camps.length === 0}}" class="empty">还没有共读营，创建第一个吧！</view>
+    </block>
+  </block>
 </view>

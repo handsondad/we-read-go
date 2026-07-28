@@ -1,0 +1,45 @@
+<view class="container">
+  <view class="segs">
+    <text class="seg {{seg==='want'?'on':''}}" bindtap="switchSeg" data-seg="want">想读 {{counts.want}}</text>
+    <text class="seg {{seg==='reading'?'on':''}}" bindtap="switchSeg" data-seg="reading">在读 {{counts.reading}}</text>
+    <text class="seg {{seg==='finished'?'on':''}}" bindtap="switchSeg" data-seg="finished">读完 {{counts.finished}}</text>
+  </view>
+
+  <button class="primary small add" bindtap="openAdd">+ 添加一本书</button>
+
+  <view class="item" wx:for="{{lists[seg]}}" wx:key="id" bindtap="openEdit" data-id="{{item.id}}">
+    <view class="item-head">
+      <text class="title">{{item.title}}</text>
+      <text class="rating">
+        <text class="star {{item.rating >= s ? 'on':''}}" wx:for="{{stars}}" wx:for-item="s" wx:key="*this">★</text>
+      </text>
+    </view>
+    <text class="author" wx:if="{{item.author}}">{{item.author}}</text>
+    <text class="note" wx:if="{{item.note}}">{{item.note}}</text>
+  </view>
+
+  <view wx:if="{{lists[seg].length === 0}}" class="empty">「{{statusText[seg]}}」还没有书，点上面添加</view>
+</view>
+
+<view wx:if="{{showForm}}" class="mask" bindtap="closeForm">
+  <view class="sheet" catchtap="noop">
+    <text class="sheet-title">{{editingId ? '编辑' : '添加'}}书籍</text>
+    <input class="fld" placeholder="书名（必填）" value="{{form.title}}" bindinput="onTitle" />
+    <input class="fld" placeholder="作者（可选）" value="{{form.author}}" bindinput="onAuthor" />
+    <view class="fld-row">
+      <text class="lbl">状态</text>
+      <text class="chip {{form.status==='want'?'on':''}}" bindtap="onFormStatus" data-status="want">想读</text>
+      <text class="chip {{form.status==='reading'?'on':''}}" bindtap="onFormStatus" data-status="reading">在读</text>
+      <text class="chip {{form.status==='finished'?'on':''}}" bindtap="onFormStatus" data-status="finished">读完</text>
+    </view>
+    <view class="fld-row">
+      <text class="lbl">评分</text>
+      <text class="star big {{form.rating >= s ? 'on':''}}" wx:for="{{stars}}" wx:for-item="s" wx:key="*this" bindtap="onStar" data-n="{{s}}">★</text>
+    </view>
+    <textarea class="fld area" placeholder="读后感想（可选）" value="{{form.note}}" bindinput="onNote" />
+    <view class="sheet-actions">
+      <button wx:if="{{editingId}}" class="danger small" bindtap="deleteItem">删除</button>
+      <button class="primary small" bindtap="saveForm">保存</button>
+    </view>
+  </view>
+</view>

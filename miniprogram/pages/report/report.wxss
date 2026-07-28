@@ -1,0 +1,80 @@
+.big {
+  font-size: 96rpx;
+  font-weight: 700;
+  color: #07c160;
+  text-align: center;
+  margin: 40rpx 0;
+}
+.unit {
+  font-size: 28rpx;
+  color: #2b2b2b;
+  font-weight: 400;
+}
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+  margin-bottom: 24rpx;
+}
+.cell {
+  width: 50%;
+  box-sizing: border-box;
+  background: #fff;
+  border: 1rpx solid #f5f5f5;
+  padding: 32rpx 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.num {
+  font-size: 44rpx;
+  font-weight: 600;
+  color: #2b2b2b;
+}
+.lab {
+  font-size: 24rpx;
+  color: #888;
+  margin-top: 8rpx;
+}
+.card {
+  background: #fff;
+  border-radius: 12rpx;
+  padding: 24rpx;
+  margin-bottom: 24rpx;
+}
+.track {
+  height: 16rpx;
+  background: #f0f0f0;
+  border-radius: 8rpx;
+  margin-top: 16rpx;
+  overflow: hidden;
+}
+.fill {
+  height: 100%;
+  background: #07c160;
+  border-radius: 8rpx;
+}
+.read {
+  font-size: 26rpx;
+  color: #666;
+  text-align: center;
+  margin-bottom: 32rpx;
+}
+.primary,
+.ghost {
+  margin-bottom: 20rpx;
+}
+.tip {
+  color: #aaa;
+  text-align: center;
+  display: block;
+  margin-top: 100rpx;
+}
+
+/* 离屏分享画布：保持渲染但移出可视区 */
+.share-canvas {
+  position: fixed;
+  left: -9999rpx;
+  top: 0;
+  width: 600px;
+  height: 800px;
+}

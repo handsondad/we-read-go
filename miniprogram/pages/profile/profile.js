@@ -7,6 +7,7 @@ Page({
     reminders: [],
     cookie: '',
     nickname: '',
+    avatar: '',
     newTime: '21:00'
   },
   onShow() {
@@ -16,14 +17,17 @@ Page({
   },
   loadProfile() {
     request('/api/profile', 'GET')
-      .then((d) => this.setData({ nickname: d.nickname || '' }))
+      .then((d) => this.setData({ nickname: d.nickname || '', avatar: d.avatar || '' }))
       .catch(() => {})
+  },
+  onChooseAvatar(e) {
+    this.setData({ avatar: e.detail.avatarUrl })
   },
   onNick(e) {
     this.setData({ nickname: e.detail.value })
   },
-  saveNick() {
-    request('/api/profile', 'PATCH', { nickname: this.data.nickname })
+  saveProfile() {
+    request('/api/profile', 'PATCH', { nickname: this.data.nickname, avatar: this.data.avatar })
       .then(() => wx.showToast({ title: '已保存' }))
       .catch(() => wx.showToast({ title: '保存失败', icon: 'none' }))
   },

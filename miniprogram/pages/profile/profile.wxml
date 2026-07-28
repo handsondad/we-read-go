@@ -1,14 +1,21 @@
 <view class="container">
   <view class="card">
-    <text class="h">我的昵称</text>
-    <input class="nick" placeholder="用于共读榜展示" value="{{nickname}}" bindinput="onNick" />
-    <button class="save" size="mini" bindtap="saveNick">保存昵称</button>
+    <text class="h">我的资料</text>
+    <view class="profile-row">
+      <button class="avatar-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
+        <image wx:if="{{avatar}}" class="avatar" src="{{avatar}}" mode="aspectFill" />
+        <view wx:else class="avatar placeholder">+</view>
+      </button>
+      <input class="nick" type="nickname" placeholder="点击填写昵称" value="{{nickname}}" bindinput="onNick" />
+    </view>
+    <button class="save" size="mini" bindtap="saveProfile">保存资料</button>
   </view>
 
   <view class="card">
     <text class="h">微信读书同步</text>
     <text class="tip">{{status.hasCookie ? '已绑定' : '未绑定：粘贴网页端 Cookie 后点同步书架'}}</text>
     <text class="tip" wx:if="{{status.lastSyncAt}}">上次同步：{{status.lastSyncAt}}</text>
+    <text class="tip err" wx:if="{{status.lastSyncError}}">同步出错：{{status.lastSyncError}}</text>
     <textarea class="cookie" placeholder="从 weread.qq.com 复制的 Cookie" value="{{cookie}}" bindinput="onCookie" />
     <button class="save" size="mini" bindtap="saveCookie">保存 Cookie</button>
   </view>

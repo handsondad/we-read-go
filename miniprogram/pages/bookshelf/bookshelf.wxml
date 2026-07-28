@@ -14,7 +14,7 @@
     <view class="info">
       <text class="title">{{item.title}}</text>
       <text class="author">{{item.author}}</text>
-      <text class="prog">{{item.status}} · {{item.progress}}%</text>
+      <text class="prog">{{item.statusText}} · {{item.progress}}%</text>
     </view>
   </view>
 

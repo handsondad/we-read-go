@@ -63,14 +63,22 @@ curl http://127.0.0.1:8080/health
 | POST | `/api/login` | 用 `wx.login` 的 code 换 token 与用户 |
 | POST | `/api/weread/cookie` | 保存微信读书 Cookie（加密存储） |
 | GET | `/api/weread/status` | 同步状态 |
-| POST | `/api/sync` | 触发同步书架 / 进度 / 阅读统计 |
+| POST | `/api/sync` | 触发同步（异步，前端轮询 `/api/weread/status` 获取进度与错误） |
 | GET/POST | `/api/books` | 列出 / 新增（手动）书籍 |
 | POST/GET | `/api/checkin` | 打卡 / 打卡状态（含连胜、近 30 天历史） |
 | GET/POST | `/api/reminders` | 列出 / 新增提醒时间 |
 | PATCH | `/api/reminders/{id}` | 启停提醒 |
 | GET | `/api/report` | 阅读可视化报告（连胜/打卡/书目/时长） |
 | GET | `/api/leaderboard` | 共读打卡排行榜（社区雏形） |
-| GET/PATCH | `/api/profile` | 读取 / 设置昵称 |
+| GET/POST | `/api/posts` | 心得帖列表（`?campId=` 可按营过滤）/ 发帖 |
+| POST | `/api/posts/{id}/like` | 点赞 / 取消点赞（切换式） |
+| GET/POST | `/api/camps` | 共读营列表 / 创建（创建者自动入营） |
+| GET | `/api/camps/{id}` | 营详情（成员打卡榜 + 营内心得） |
+| POST | `/api/camps/{id}/join` | 加入共读营 |
+| GET/POST | `/api/booklists` | 书单列表 / 添加（状态 want/reading/finished、评分 0-5、感想） |
+| PATCH | `/api/booklists/{id}` | 更新书单条目（状态/评分/感想/书名/作者） |
+| DELETE | `/api/booklists/{id}` | 删除书单条目 |
+| GET/PATCH | `/api/profile` | 读取 / 设置昵称头像 |
 | GET | `/health` | 健康检查 |
 
 鉴权：除 `/health` 外，所有接口需在 Header 带 `Authorization: Bearer <token>`。
@@ -87,5 +95,9 @@ curl http://127.0.0.1:8080/health
 
 - ✅ 阅读可视化报告（`/api/report` + `pages/report`）
 - ✅ 共读打卡榜（`/api/leaderboard` + `pages/community`）
-- 待做：共读营 / 书单 / 心得帖（新增 `posts`、`booklists` 表）；canvas 分享图片；
-  用真实昵称头像增强社区感；更稳的同步（或引导用户手动记录书目，不依赖 weread）。
+- ✅ 心得帖（发帖 + 点赞，`posts`/`post_likes` 表）
+- ✅ 共读营（创建/加入/营内榜单与心得，`camps`/`camp_members` 表）
+- ✅ canvas 分享图片（报告页生成战绩卡片保存到相册）
+- ✅ 书单（想读/在读/读完三段、星级评分、感想，独立可读写，`booklists` 表 + `pages/booklist`）
+- ✅ 真实昵称头像（设置页 `chooseAvatar` + 昵称填写组件；打卡榜 / 心得帖 / 共读营显示头像）
+- ✅ 稳定的微信读书同步（后台线程异步执行，瞬时网络错误自动重试退避；Cookie 失效通过 302 跳转 / 登录页 HTML / 错误码 JSON 识别并落库 `lastSyncError`，前端轮询展示失败原因，绝不拖垮核心打卡）。

@@ -133,8 +133,14 @@ def weread_status(svc, req):
 
 def sync(svc, req):
     uid = current_user_id(req)
-    svc.sync_weread(uid)
-    return 200, {"ok": True}
+    st = svc.weread_status(uid)
+    if not st.get("hasCookie"):
+        return 200, {"ok": False, "message": "请先在「我的」页填写微信读书 Cookie"}
+    if st.get("syncing"):
+        return 200, {"ok": True, "async": True, "running": True}
+    # 后台线程执行，避免书架大、逐本请求多时阻塞请求导致超时
+    threading.Thread(target=svc.sync_weread, args=(uid,), daemon=True).start()
+    return 200, {"ok": True, "async": True}
 
 
 def books(svc, req):
@@ -192,7 +198,80 @@ def profile_get(svc, req):
 def profile_patch(svc, req):
     uid = current_user_id(req)
     body = req.json()
-    svc.update_profile(uid, body.get("nickname", ""))
+    svc.update_profile(uid, body.get("nickname", ""), body.get("avatar"))
+    return 200, {"ok": True}
+
+
+def _int_arg(req, name):
+    try:
+        return int(req.path_args[name])
+    except (KeyError, ValueError):
+        raise ServiceError("非法的路径参数", 400)
+
+
+def posts(svc, req):
+    uid = current_user_id(req)
+    if req.method == "GET":
+        camp_id = int((req.query.get("campId") or ["0"])[0] or 0)
+        return 200, svc.list_posts(uid, camp_id=camp_id)
+    body = req.json()
+    created = svc.create_post(
+        uid,
+        body.get("content", ""),
+        body.get("bookTitle", ""),
+        int(body.get("campId", 0) or 0),
+    )
+    return 200, created
+
+
+def post_like(svc, req):
+    uid = current_user_id(req)
+    return 200, svc.toggle_like(uid, _int_arg(req, "id"))
+
+
+def camps(svc, req):
+    uid = current_user_id(req)
+    if req.method == "GET":
+        return 200, svc.list_camps(uid)
+    body = req.json()
+    return 200, svc.create_camp(uid, body.get("name", ""), body.get("bookTitle", ""))
+
+
+def camp_join(svc, req):
+    uid = current_user_id(req)
+    return 200, svc.join_camp(uid, _int_arg(req, "id"))
+
+
+def camp_detail(svc, req):
+    uid = current_user_id(req)
+    return 200, svc.camp_detail(uid, _int_arg(req, "id"))
+
+
+def booklists(svc, req):
+    uid = current_user_id(req)
+    if req.method == "GET":
+        return 200, svc.list_booklists(uid)
+    body = req.json()
+    created = svc.add_booklist(
+        uid,
+        body.get("title", ""),
+        body.get("author", ""),
+        body.get("status", "want"),
+        int(body.get("rating", 0) or 0),
+        body.get("note", ""),
+    )
+    return 200, created
+
+
+def booklist_patch(svc, req):
+    uid = current_user_id(req)
+    svc.update_booklist(uid, _int_arg(req, "id"), req.json())
+    return 200, {"ok": True}
+
+
+def booklist_delete(svc, req):
+    uid = current_user_id(req)
+    svc.delete_booklist(uid, _int_arg(req, "id"))
     return 200, {"ok": True}
 
 
@@ -213,6 +292,17 @@ router.add("POST", "/api/reminders", reminders)
 router.add("PATCH", "/api/reminders/{id}", reminder_patch)
 router.add("GET", "/api/report", report)
 router.add("GET", "/api/leaderboard", leaderboard)
+router.add("GET", "/api/posts", posts)
+router.add("POST", "/api/posts", posts)
+router.add("POST", "/api/posts/{id}/like", post_like)
+router.add("GET", "/api/camps", camps)
+router.add("POST", "/api/camps", camps)
+router.add("GET", "/api/camps/{id}", camp_detail)
+router.add("POST", "/api/camps/{id}/join", camp_join)
+router.add("GET", "/api/booklists", booklists)
+router.add("POST", "/api/booklists", booklists)
+router.add("PATCH", "/api/booklists/{id}", booklist_patch)
+router.add("DELETE", "/api/booklists/{id}", booklist_delete)
 router.add("GET", "/api/profile", profile_get)
 router.add("PATCH", "/api/profile", profile_patch)
 router.add("GET", "/health", health)
@@ -228,7 +318,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -261,6 +351,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_PATCH(self):
         self._dispatch("PATCH")
+
+    def do_DELETE(self):
+        self._dispatch("DELETE")
 
     def log_message(self, *a):
         pass

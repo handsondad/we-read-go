@@ -11,13 +11,15 @@ CREATE TABLE IF NOT EXISTS users (
   created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS weread_accounts (
-  id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id      INTEGER UNIQUE,
-  cookie       TEXT,
-  wr_vid       TEXT,
-  wr_name      TEXT,
-  last_sync_at DATETIME,
-  created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id        INTEGER UNIQUE,
+  cookie         TEXT,
+  wr_vid         TEXT,
+  wr_name        TEXT,
+  last_sync_at   DATETIME,
+  last_sync_error TEXT,
+  syncing        INTEGER DEFAULT 0,
+  created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY(user_id) REFERENCES users(id)
 );
 CREATE TABLE IF NOT EXISTS books (
@@ -60,6 +62,45 @@ CREATE TABLE IF NOT EXISTS user_stats (
   payload    TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS posts (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER,
+  camp_id    INTEGER,
+  content    TEXT,
+  book_title TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS post_likes (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  post_id    INTEGER,
+  user_id    INTEGER,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(post_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS camps (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT,
+  book_title TEXT,
+  creator_id INTEGER,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS camp_members (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  camp_id   INTEGER,
+  user_id   INTEGER,
+  joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(camp_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS booklists (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER,
+  title      TEXT,
+  author     TEXT,
+  status     TEXT DEFAULT 'want',
+  rating     INTEGER DEFAULT 0,
+  note       TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -68,6 +109,16 @@ def init(path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    _migrate(conn)
     conn.commit()
     print("db initialized at", path)
     return conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """为已存在的库补齐新增列，保证旧数据可平滑升级。"""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(weread_accounts)").fetchall()}
+    if "last_sync_error" not in cols:
+        conn.execute("ALTER TABLE weread_accounts ADD COLUMN last_sync_error TEXT")
+    if "syncing" not in cols:
+        conn.execute("ALTER TABLE weread_accounts ADD COLUMN syncing INTEGER DEFAULT 0")

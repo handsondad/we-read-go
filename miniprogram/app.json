@@ -4,6 +4,7 @@
     "pages/bookshelf/bookshelf",
     "pages/report/report",
     "pages/community/community",
+    "pages/booklist/booklist",
     "pages/profile/profile"
   ],
   "window": {

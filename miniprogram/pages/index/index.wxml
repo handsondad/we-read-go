@@ -11,6 +11,7 @@
   <button class="ghost" bindtap="goWeread">去微信读书阅读 →</button>
   <button class="ghost" bindtap="goReport">我的阅读报告</button>
   <button class="ghost" bindtap="goCommunity">共读打卡榜</button>
+  <button class="ghost" bindtap="goBooklist">我的书单</button>
 
   <view class="row">
     <button class="link" bindtap="goBookshelf">我的书架</button>

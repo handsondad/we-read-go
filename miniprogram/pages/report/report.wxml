@@ -18,7 +18,10 @@
   <view class="read">微信读书累计阅读：{{readingText}}</view>
 
   <button class="primary" open-type="share">分享我的战绩</button>
+  <button class="ghost" bindtap="saveShareImage">生成分享图保存到相册</button>
   <button class="ghost" bindtap="goCommunity">看看共读榜 →</button>
+
+  <canvas type="2d" id="shareCanvas" class="share-canvas"></canvas>
 </view>
 
 <view class="container" wx:else>

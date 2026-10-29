@@ -1,0 +1,30 @@
+{
+  "pages": [
+    { "path": "pages/home/index", "style": { "navigationBarTitleText": "小书友" } },
+    { "path": "pages/shelf/index", "style": { "navigationBarTitleText": "我的书架" } },
+    { "path": "pages/wishlist/index", "style": { "navigationBarTitleText": "想读书单" } },
+    { "path": "pages/journal/index", "style": { "navigationBarTitleText": "阅读足迹" } },
+    { "path": "pages/settings/index", "style": { "navigationBarTitleText": "连接与设置" } }
+  ],
+  "globalStyle": {
+    "navigationBarBackgroundColor": "#faf6ef",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#faf6ef",
+    "navigationBarTitleText": "小书友"
+  },
+  "tabBar": {
+    "color": "#786b5d",
+    "selectedColor": "#6d4d30",
+    "fontSize": "18px",
+    "height": "60px",
+    "backgroundColor": "#fffdf9",
+    "borderStyle": "white",
+    "list": [
+      { "pagePath": "pages/home/index", "text": "伙伴" },
+      { "pagePath": "pages/shelf/index", "text": "书架" },
+      { "pagePath": "pages/wishlist/index", "text": "想读" },
+      { "pagePath": "pages/journal/index", "text": "足迹" },
+      { "pagePath": "pages/settings/index", "text": "设置" }
+    ]
+  }
+}

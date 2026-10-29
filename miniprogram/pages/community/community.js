@@ -19,7 +19,7 @@ Page({
     campDetail: null
   },
   onShow() {
-    app.login().then(() => this.loadAll())
+    app.login().then(() => this.loadAll()).catch(() => {})
   },
   loadAll() {
     this.loadBoard()

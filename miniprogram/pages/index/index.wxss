@@ -1,49 +1,175 @@
-.hero {
+.container {
+  padding: 28rpx;
+}
+.companion-card {
+  padding: 32rpx;
+  background: linear-gradient(145deg, #fff8ed, #fff1dc);
+  border-radius: 28rpx;
+  box-shadow: 0 8rpx 28rpx rgba(104, 76, 43, 0.08);
+}
+.pet-row {
+  display: flex;
+  align-items: center;
+}
+.pet {
+  width: 104rpx;
+  height: 104rpx;
+  border-radius: 50%;
+  background: #ffe2ae;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 58rpx;
+}
+.pet-copy {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  margin: 40rpx 0;
+  margin-left: 22rpx;
 }
-.streak {
-  font-size: 48rpx;
+.pet-name {
+  color: #59452e;
+  font-size: 34rpx;
   font-weight: 600;
-  color: #2b2b2b;
 }
-.sub {
-  color: #888;
-  margin-top: 8rpx;
+.pet-sub {
+  margin-top: 6rpx;
+  color: #9a8060;
+  font-size: 24rpx;
 }
-.primary,
-.ghost {
-  margin-top: 24rpx;
+.message {
+  display: block;
+  margin-top: 28rpx;
+  color: #493c2d;
+  font-size: 31rpx;
+  line-height: 1.65;
 }
-.row {
+.gentle {
+  display: block;
+  margin-top: 10rpx;
+  color: #9a8060;
+  font-size: 24rpx;
+}
+.primary {
+  margin-top: 28rpx;
+  background: #947149;
+  color: #fff;
+  border-radius: 14rpx;
+  font-size: 29rpx;
+}
+.recommend-card,
+.checkin-card {
+  margin-top: 22rpx;
+  padding: 26rpx;
+  background: #fff;
+  border-radius: 22rpx;
+}
+.section-title {
+  display: block;
+  color: #40382e;
+  font-size: 29rpx;
+  font-weight: 600;
+}
+.book-row {
   display: flex;
-  justify-content: space-around;
-  margin-top: 24rpx;
+  margin-top: 20rpx;
 }
-.link {
-  background: transparent;
-  color: #07c160;
+.cover,
+.cover-placeholder {
+  flex: none;
+  width: 112rpx;
+  height: 148rpx;
+  border-radius: 8rpx;
+}
+.cover-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f5eee4;
+  font-size: 46rpx;
+}
+.book-info {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  margin-left: 20rpx;
+}
+.book-title {
+  color: #40382e;
   font-size: 28rpx;
+  font-weight: 600;
 }
-.history {
-  margin-top: 48rpx;
+.book-author,
+.reason,
+.progress-label {
+  margin-top: 8rpx;
+  color: #928779;
+  font-size: 23rpx;
 }
-.h-title {
-  color: #888;
+.reason {
+  line-height: 1.45;
+}
+.progress-track {
+  height: 8rpx;
+  margin-top: auto;
+  background: #f0ece5;
+  border-radius: 8rpx;
+}
+.progress-fill {
+  height: 100%;
+  background: #d3a66d;
+  border-radius: 8rpx;
+}
+.progress-label {
+  margin-top: 6rpx;
+  text-align: right;
+}
+.checkin-card {
+  display: flex;
+  flex-direction: column;
+}
+.checkin-note,
+.streak-note {
+  display: block;
+  margin-top: 8rpx;
+  color: #928779;
+  font-size: 23rpx;
+}
+.checkin {
+  margin: 20rpx 0 0;
+  background: #f5f0e8;
+  color: #725b3f;
+  border-radius: 12rpx;
   font-size: 26rpx;
 }
-.days {
+.checkin[disabled] {
+  color: #8c9a8b;
+  background: #edf2eb;
+}
+.streak-note {
+  text-align: center;
+}
+.quick-links {
   display: flex;
   flex-wrap: wrap;
-  margin-top: 12rpx;
+  justify-content: space-between;
+  margin-top: 22rpx;
 }
-.day {
-  font-size: 24rpx;
-  color: #666;
+.link-card {
+  width: 48%;
+  margin: 0 0 14rpx;
+  padding: 18rpx 0;
   background: #fff;
-  padding: 8rpx 16rpx;
-  border-radius: 8rpx;
-  margin: 8rpx 8rpx 0 0;
+  color: #5e5141;
+  border-radius: 14rpx;
+  font-size: 26rpx;
+}
+.community-link {
+  margin-top: 4rpx;
+  background: transparent;
+  color: #98856d;
+  font-size: 24rpx;
+}
+button::after {
+  border: none;
 }

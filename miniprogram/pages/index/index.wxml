@@ -1,27 +1,50 @@
 <view class="container">
-  <view class="hero">
-    <text class="streak">连续打卡 {{status.streak}} 天</text>
-    <text class="sub">今天读了吗？</text>
+  <view class="companion-card">
+    <view class="pet-row">
+      <view class="pet">🐱</view>
+      <view class="pet-copy">
+        <text class="pet-name">小书友</text>
+        <text class="pet-sub">一直在这里，等你有空</text>
+      </view>
+    </view>
+    <text class="message">{{companion.message}}</text>
+    <text class="gentle">{{companion.gentlePrompt}}</text>
+    <button class="primary" bindtap="goWeread">去微信读书，读几页</button>
   </view>
 
-  <button class="primary" bindtap="checkIn" disabled="{{status.todayDone}}">
-    {{status.todayDone ? '今日已打卡 ✓' : '今日打卡'}}
-  </button>
-
-  <button class="ghost" bindtap="goWeread">去微信读书阅读 →</button>
-  <button class="ghost" bindtap="goReport">我的阅读报告</button>
-  <button class="ghost" bindtap="goCommunity">共读打卡榜</button>
-  <button class="ghost" bindtap="goBooklist">我的书单</button>
-
-  <view class="row">
-    <button class="link" bindtap="goBookshelf">我的书架</button>
-    <button class="link" bindtap="goProfile">设置</button>
-  </view>
-
-  <view class="history" wx:if="{{status.history.length}}">
-    <text class="h-title">最近打卡</text>
-    <view class="days">
-      <text class="day" wx:for="{{status.history}}" wx:key="*this">{{item}}</text>
+  <view class="recommend-card" wx:if="{{companion.recommendation}}">
+    <view class="section-title">今天的小建议</view>
+    <view class="book-row">
+      <image wx:if="{{companion.recommendation.cover}}" class="cover" src="{{companion.recommendation.cover}}" mode="aspectFill" />
+      <view wx:else class="cover-placeholder">📖</view>
+      <view class="book-info">
+        <text class="book-title">{{companion.recommendation.title}}</text>
+        <text class="book-author" wx:if="{{companion.recommendation.author}}">{{companion.recommendation.author}}</text>
+        <text class="reason">{{companion.recommendation.reason}}</text>
+        <view class="progress-track" wx:if="{{companion.state != 'curious'}}">
+          <view class="progress-fill" style="width: {{companion.recommendation.progress}}%;"></view>
+        </view>
+        <text class="progress-label" wx:if="{{companion.state != 'curious'}}">读到 {{companion.recommendation.progress}}%</text>
+      </view>
     </view>
   </view>
+
+  <view class="checkin-card">
+    <view class="checkin-copy">
+      <text class="section-title">{{companion.todayDone ? '今天已经读过啦' : '读完后，回来告诉我'}}</text>
+      <text class="checkin-note">{{companion.todayDone ? '谢谢你留给自己的这段时间' : '读几页也算，不用追赶昨天'}}</text>
+    </view>
+    <button class="checkin" bindtap="checkIn" disabled="{{companion.todayDone}}">
+      {{companion.todayDone ? '今天已记录 ✓' : '我今天读过了'}}
+    </button>
+    <text class="streak-note" wx:if="{{companion.streak > 0}}">最近连续 {{companion.streak}} 天有阅读记录，慢慢来就好</text>
+  </view>
+
+  <view class="quick-links">
+    <button class="link-card" bindtap="goBookshelf">我的书架</button>
+    <button class="link-card" bindtap="goBooklist">想读书单</button>
+    <button class="link-card" bindtap="goReport">阅读记录</button>
+    <button class="link-card" bindtap="goProfile">提醒与设置</button>
+  </view>
+  <button class="community-link" bindtap="goCommunity">看看共读伙伴 →</button>
 </view>

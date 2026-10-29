@@ -21,8 +21,8 @@ from crypto import Cipher
 from services import Services, ServiceError
 
 cfg = load_config()
-conn = init_db(cfg.db_path)
 cipher = Cipher(cfg.encrypt_key)
+conn = init_db(cfg.db_path)
 svc = Services(conn, cfg, cipher)
 
 
@@ -126,6 +126,15 @@ def save_cookie(svc, req):
     return 200, {"ok": True}
 
 
+def save_api_key(svc, req):
+    uid = current_user_id(req)
+    api_key = req.json().get("apiKey")
+    if not isinstance(api_key, str) or not api_key.strip():
+        raise ServiceError("缺少 API Key", 400)
+    svc.save_weread_api_key(uid, api_key)
+    return 200, {"ok": True}
+
+
 def weread_status(svc, req):
     uid = current_user_id(req)
     return 200, svc.weread_status(uid)
@@ -133,10 +142,7 @@ def weread_status(svc, req):
 
 def sync(svc, req):
     uid = current_user_id(req)
-    st = svc.weread_status(uid)
-    if not st.get("hasCookie"):
-        return 200, {"ok": False, "message": "请先在「我的」页填写微信读书 Cookie"}
-    if st.get("syncing"):
+    if not svc.reserve_sync(uid):
         return 200, {"ok": True, "async": True, "running": True}
     # 后台线程执行，避免书架大、逐本请求多时阻塞请求导致超时
     threading.Thread(target=svc.sync_weread, args=(uid,), daemon=True).start()
@@ -162,6 +168,11 @@ def checkin(svc, req):
     return 200, {"ok": True, "firstTime": first}
 
 
+def companion(svc, req):
+    uid = current_user_id(req)
+    return 200, svc.companion(uid)
+
+
 def reminders(svc, req):
     uid = current_user_id(req)
     if req.method == "GET":
@@ -171,6 +182,12 @@ def reminders(svc, req):
     if not t:
         raise ServiceError("缺少 time", 400)
     return 200, svc.create_reminder(uid, t)
+
+
+def reminder_config(svc, req):
+    current_user_id(req)
+    enabled = bool(svc.cfg.wx_appid and svc.cfg.wx_appsecret and svc.cfg.wx_template_id)
+    return 200, {"enabled": enabled, "templateId": svc.cfg.wx_template_id if enabled else ""}
 
 
 def reminder_patch(svc, req):
@@ -281,13 +298,16 @@ def health(svc, req):
 
 router.add("POST", "/api/login", login)
 router.add("POST", "/api/weread/cookie", save_cookie)
+router.add("POST", "/api/weread/api-key", save_api_key)
 router.add("GET", "/api/weread/status", weread_status)
 router.add("POST", "/api/sync", sync)
 router.add("GET", "/api/books", books)
 router.add("POST", "/api/books", books)
 router.add("POST", "/api/checkin", checkin)
 router.add("GET", "/api/checkin", checkin)
+router.add("GET", "/api/companion", companion)
 router.add("GET", "/api/reminders", reminders)
+router.add("GET", "/api/reminders/config", reminder_config)
 router.add("POST", "/api/reminders", reminders)
 router.add("PATCH", "/api/reminders/{id}", reminder_patch)
 router.add("GET", "/api/report", report)

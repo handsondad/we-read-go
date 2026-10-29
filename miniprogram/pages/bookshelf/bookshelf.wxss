@@ -56,6 +56,11 @@
   color: #07c160;
   margin-top: 6rpx;
 }
+.stale {
+  margin-top: 8rpx;
+  color: #a47b4e;
+  font-size: 22rpx;
+}
 .empty {
   text-align: center;
   color: #aaa;

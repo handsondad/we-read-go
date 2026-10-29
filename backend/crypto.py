@@ -1,4 +1,4 @@
-"""AES 对称加密封装，用于存储微信读书 Cookie。
+"""AES 对称加密封装，用于存储微信读书 API Key 和 Cookie。
 
 密钥由配置中的 ENCRYPT_KEY 经 SHA-256 派生。底层优先使用 cryptography 的
 Fernet（等价于 AES-128-CBC + HMAC 认证，可防篡改）。若 cryptography 未安装，
@@ -10,11 +10,13 @@ import hashlib
 
 class Cipher:
     def __init__(self, key: str):
+        if not key:
+            raise RuntimeError("请先设置 ENCRYPT_KEY；该密钥用于加密凭证，重启时必须保持不变。")
         try:
             from cryptography.fernet import Fernet
         except ImportError:
             raise RuntimeError(
-                "缺少 cryptography 库，无法加密存储微信读书 Cookie。\n"
+                "缺少 cryptography 库，无法加密存储微信读书凭证。\n"
                 "请运行: pip install cryptography\n"
                 "或将其加入 requirements.txt 后重新安装依赖。"
             )

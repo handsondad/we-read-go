@@ -6,23 +6,33 @@ const WEREAD_APPID = 'wx8d9bf9c0b4c3f5e1'
 
 Page({
   data: {
-    status: { streak: 0, todayDone: false, history: [] }
+    companion: {
+      state: 'quiet',
+      message: '今天也可以慢慢来。想读的时候，我们就从 5 分钟开始。',
+      gentlePrompt: '今天不必补昨天，愿意翻开一页就很好。',
+      todayDone: false,
+      streak: 0,
+      recommendation: null
+    }
   },
   onShow() {
-    app.login().then(() => this.load())
+    app.login().then(() => this.load()).catch(() => {})
   },
   load() {
-    request('/api/checkin', 'GET')
-      .then((d) => this.setData({ status: d }))
+    request('/api/companion', 'GET')
+      .then((d) => this.setData({ companion: d }))
       .catch(() => {})
   },
   checkIn() {
     request('/api/checkin', 'POST')
       .then(() => this.load())
-      .catch(() => wx.showToast({ title: '打卡失败', icon: 'none' }))
+      .catch(() => wx.showToast({ title: '记录失败，请稍后再试', icon: 'none' }))
   },
   goWeread() {
-    wx.navigateToMiniProgram({ appId: WEREAD_APPID })
+    wx.navigateToMiniProgram({
+      appId: WEREAD_APPID,
+      fail: () => wx.showToast({ title: '暂时无法跳转，请直接打开微信读书', icon: 'none' })
+    })
   },
   goBookshelf() {
     wx.navigateTo({ url: '/pages/bookshelf/bookshelf' })

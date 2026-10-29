@@ -4,12 +4,15 @@
 仅依赖标准库 + （间接）cryptography。
 """
 import json
+import re
 import threading
 import time
+import datetime
 import urllib.parse
+import urllib.error
 import urllib.request
 
-from weread import Client, WereadError
+from weread import ApiKeyClient, Client, WereadError
 
 
 class ServiceError(Exception):
@@ -26,8 +29,11 @@ def _http_json(url: str, data: bytes = None, method: str = "GET") -> dict:
         headers={"Content-Type": "application/json"},
         method=method,
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read().decode("utf-8", "ignore"))
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, UnicodeDecodeError, json.JSONDecodeError):
+        raise ServiceError("微信服务暂不可用，请稍后重试", 502)
 
 
 class Services:
@@ -108,12 +114,13 @@ class Services:
             raise ServiceError("未登录或 token 无效", 401)
         return row[0]
 
-    # ---------- 微信读书 Cookie ----------
+    # ---------- 微信读书凭证 ----------
 
     def save_weread_cookie(self, user_id: int, cookie: str) -> None:
         enc = self.cipher.encrypt(cookie.strip())
         vid = extract_cookie(cookie, "wr_vid")
         with self.lock:
+            self._ensure_not_syncing(user_id)
             self.conn.execute(
                 """INSERT INTO weread_accounts(user_id, cookie, wr_vid)
                    VALUES(?,?,?)
@@ -124,16 +131,34 @@ class Services:
             )
             self.conn.commit()
 
+    def save_weread_api_key(self, user_id: int, api_key: str) -> None:
+        api_key = (api_key or "").strip()
+        if not api_key:
+            raise ServiceError("API Key 不能为空")
+        enc = self.cipher.encrypt(api_key)
+        with self.lock:
+            self._ensure_not_syncing(user_id)
+            self.conn.execute(
+                """INSERT INTO weread_accounts(user_id, api_key)
+                   VALUES(?,?)
+                   ON CONFLICT(user_id) DO UPDATE SET
+                     api_key=excluded.api_key,
+                     last_sync_at=NULL, last_sync_error=NULL, syncing=0""",
+                (user_id, enc),
+            )
+            self.conn.commit()
+
     def weread_status(self, user_id: int) -> dict:
         with self.lock:
             row = self.conn.execute(
                 """SELECT id, wr_vid, last_sync_at, last_sync_error, syncing,
+                          (api_key IS NOT NULL AND api_key<>'') AS has_api_key,
                           (cookie IS NOT NULL AND cookie<>'') AS has_cookie
                    FROM weread_accounts WHERE user_id=?""",
                 (user_id,),
             ).fetchone()
         if row is None:
-            return {"id": 0, "userId": user_id, "hasCookie": False}
+            return {"id": 0, "userId": user_id, "hasCookie": False, "hasApiKey": False}
         info = dict(row)
         out = {
             "id": info["id"],
@@ -141,6 +166,7 @@ class Services:
             "wrVid": info.get("wr_vid") or "",
             "wrName": info.get("wr_name") or "",
             "hasCookie": bool(info["has_cookie"]),
+            "hasApiKey": bool(info["has_api_key"]),
             "syncing": bool(info.get("syncing")),
         }
         if info.get("last_sync_at"):
@@ -158,14 +184,45 @@ class Services:
             raise ServiceError("尚未绑定微信读书 Cookie")
         return self.cipher.decrypt(row["cookie"])
 
+    def _weread_api_key(self, user_id: int) -> str:
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT api_key FROM weread_accounts WHERE user_id=?", (user_id,)
+            ).fetchone()
+        if row is None or not row["api_key"]:
+            raise ServiceError("尚未绑定微信读书 API Key")
+        return self.cipher.decrypt(row["api_key"])
+
     # ---------- 同步微信读书数据 ----------
+
+    def _ensure_not_syncing(self, user_id: int) -> None:
+        row = self.conn.execute(
+            "SELECT syncing FROM weread_accounts WHERE user_id=?", (user_id,)
+        ).fetchone()
+        if row and row["syncing"]:
+            raise ServiceError("正在同步，请完成后再更换凭证", 409)
+
+    def reserve_sync(self, user_id: int) -> bool:
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT cookie, api_key, syncing FROM weread_accounts WHERE user_id=?", (user_id,)
+            ).fetchone()
+            if not row or not (row["cookie"] or row["api_key"]):
+                raise ServiceError("请先在设置页绑定微信读书 API Key")
+            if row["syncing"]:
+                return False
+            self.conn.execute(
+                "UPDATE weread_accounts SET syncing=1 WHERE user_id=?", (user_id,)
+            )
+            self.conn.commit()
+        return True
 
     def sync_weread(self, user_id: int) -> dict:
         """同步微信读书书架与阅读统计。
 
         设计目标：永不向上层抛出未捕获异常（保证核心打卡/提醒不受影响），
-        返回结构化结果 {ok, synced, message, cookieInvalid}，并落库 last_sync_at /
-        last_sync_error / syncing 供前端轮询展示。失败时仅记录错误，不污染已同步的数据。
+        返回结构化结果供前端轮询；官方 API Key 优先于旧版 Cookie。
+        进度与统计属于可选补充，失败会作为同步提示返回。
         """
         with self.lock:
             self.conn.execute(
@@ -173,61 +230,106 @@ class Services:
             )
             self.conn.commit()
 
-        result = {"ok": True, "synced": 0, "message": "同步完成", "cookieInvalid": False}
+        result = {
+            "ok": True, "synced": 0, "message": "同步完成",
+            "cookieInvalid": False, "apiKeyInvalid": False, "warnings": [],
+        }
+        warnings = []
         try:
-            cookie = self._weread_cookie(user_id)
-            client = Client(cookie, self.cfg.weread_ua)
+            with self.lock:
+                row = self.conn.execute(
+                    "SELECT api_key FROM weread_accounts WHERE user_id=?", (user_id,)
+                ).fetchone()
+            use_api_key = bool(row and row["api_key"])
+            client = (
+                ApiKeyClient(self._weread_api_key(user_id))
+                if use_api_key
+                else Client(self._weread_cookie(user_id), self.cfg.weread_ua)
+            )
 
             books = client.shelf()
-            synced = 0
+            updates = []
             for b in books:
                 book_id = b.get("bookId")
                 if not book_id:
                     continue
                 progress = int(b.get("progress", 0) or 0)
-                if not progress:
-                    progress = client.read_info(book_id)
-                with self.lock:
-                    self.conn.execute(
-                        """INSERT INTO books(user_id, book_id, title, author, cover, source, status, progress, added_at)
-                           VALUES(?,?,?,?,?, 'weread', ?, ?, CURRENT_TIMESTAMP)
-                           ON CONFLICT(user_id, book_id) DO UPDATE SET
-                             title=excluded.title, author=excluded.author, cover=excluded.cover,
-                             status=excluded.status, progress=excluded.progress""",
-                        (
-                            user_id,
-                            book_id,
-                            b.get("title", ""),
-                            b.get("author", ""),
-                            b.get("cover", ""),
-                            b.get("status", "reading"),
-                            progress,
-                        ),
-                    )
-                    self.conn.commit()
-                synced += 1
+                progress_data = {}
+                if use_api_key and b.get("status") != "finished" and (
+                    progress == 0 or not b.get("readUpdateTime")
+                ):
+                    try:
+                        progress_data = client.read_progress(book_id)
+                        if progress == 0:
+                            progress = int(progress_data.get("progress", 0) or 0)
+                    except WereadError as e:
+                        if e.api_key_invalid or e.upgrade_required:
+                            raise
+                        warnings.append(f"《{b.get('title') or book_id}》进度暂不可用：{e.msg}")
+                        progress_data = {}
+                        progress = None
+                elif not use_api_key and not progress:
+                    try:
+                        progress = client.read_info(book_id)
+                    except WereadError as e:
+                        if e.cookie_invalid:
+                            raise
+                        warnings.append(f"《{b.get('title') or book_id}》进度暂不可用：{e.msg}")
+                        progress = None
+                if progress is not None:
+                    progress = max(0, min(100, progress))
+                finished = b.get("status") == "finished" or progress == 100
+                if finished:
+                    progress = 100
+                last_read_at = _weread_timestamp(
+                    b.get("readUpdateTime") or progress_data.get("updateTime")
+                )
+                updates.append((
+                    user_id, book_id, b.get("title", ""), b.get("author", ""),
+                    b.get("cover", ""), "finished" if finished else "reading",
+                    progress, last_read_at or None, progress, progress,
+                ))
 
+            payload = None
             try:
                 raw = client.read_data()
-                with self.lock:
+                payload = raw.decode("utf-8", "ignore") if isinstance(raw, bytes) else json.dumps(raw)
+            except WereadError as e:
+                if e.api_key_invalid or e.upgrade_required or e.cookie_invalid:
+                    raise
+                warnings.append(f"阅读统计暂不可用：{e.msg}")
+
+            result["synced"] = len(updates)
+            result["warnings"] = warnings
+            if warnings:
+                result["message"] = "书架同步完成，部分数据暂不可用"
+            with self.lock, self.conn:
+                self.conn.executemany(
+                    """INSERT INTO books(user_id, book_id, title, author, cover, source, status, progress, added_at, last_read_at)
+                       VALUES(?,?,?,?,?, 'weread', ?, COALESCE(?, 0), CURRENT_TIMESTAMP, ?)
+                       ON CONFLICT(user_id, book_id) DO UPDATE SET
+                         title=excluded.title, author=excluded.author, cover=excluded.cover,
+                         status=CASE WHEN ? IS NULL THEN books.status ELSE excluded.status END,
+                         progress=COALESCE(?, books.progress),
+                         last_read_at=COALESCE(excluded.last_read_at, books.last_read_at)""",
+                    updates,
+                )
+                if payload is not None:
                     self.conn.execute(
                         "INSERT INTO user_stats(user_id, date, payload) VALUES(?,?,?)",
-                        (user_id, time.strftime("%Y-%m-%d"), raw.decode("utf-8", "ignore")),
+                        (user_id, time.strftime("%Y-%m-%d"), payload),
                     )
-                    self.conn.commit()
-            except Exception:
-                pass  # 阅读统计为可选项，失败不影响书架同步结果
-
-            result["synced"] = synced
-            with self.lock:
                 self.conn.execute(
-                    "UPDATE weread_accounts SET last_sync_at=CURRENT_TIMESTAMP, last_sync_error=NULL "
+                    "UPDATE weread_accounts SET last_sync_at=CURRENT_TIMESTAMP, last_sync_error=? "
                     "WHERE user_id=?",
-                    (user_id,),
+                    ("；".join(warnings) if warnings else None, user_id),
                 )
-                self.conn.commit()
         except WereadError as e:
-            result = {"ok": False, "synced": 0, "message": e.msg, "cookieInvalid": e.cookie_invalid}
+            result = {
+                "ok": False, "synced": 0, "message": e.msg,
+                "cookieInvalid": e.cookie_invalid,
+                "apiKeyInvalid": e.api_key_invalid,
+            }
             with self.lock:
                 self.conn.execute(
                     "UPDATE weread_accounts SET last_sync_error=? WHERE user_id=?",
@@ -255,7 +357,7 @@ class Services:
     def list_books(self, user_id: int) -> list:
         with self.lock:
             rows = self.conn.execute(
-                """SELECT id, book_id, title, author, cover, source, status, progress, added_at
+                """SELECT id, book_id, title, author, cover, source, status, progress, added_at, last_read_at
                    FROM books WHERE user_id=? ORDER BY added_at DESC""",
                 (user_id,),
             ).fetchall()
@@ -271,6 +373,11 @@ class Services:
                 "status": r["status"],
                 "progress": r["progress"],
                 "addedAt": r["added_at"] or "",
+                "lastReadAt": r["last_read_at"] or "",
+                "daysSinceRead": (
+                    max(0, (datetime.date.today() - datetime.date.fromisoformat(r["last_read_at"][:10])).days)
+                    if r["last_read_at"] else None
+                ),
             }
             for r in rows
         ]
@@ -429,6 +536,90 @@ class Services:
         history = [r["date"] for r in rows]
         return {"todayDone": cnt > 0, "streak": self._streak(user_id), "history": history}
 
+    def companion(self, user_id: int) -> dict:
+        status = self.check_in_status(user_id)
+        with self.lock:
+            rows = self.conn.execute(
+                """SELECT book_id, title, author, cover, progress, last_read_at
+                   FROM books WHERE user_id=? AND status='reading'""",
+                (user_id,),
+            ).fetchall()
+            want = self.conn.execute(
+                """SELECT title, author FROM booklists
+                   WHERE user_id=? AND status='want' ORDER BY id DESC LIMIT 1""",
+                (user_id,),
+            ).fetchone()
+
+        today = datetime.date.today()
+        reading = []
+        for row in rows:
+            book = dict(row)
+            days = None
+            if book["last_read_at"]:
+                try:
+                    days = max(0, (today - datetime.date.fromisoformat(book["last_read_at"][:10])).days)
+                except ValueError:
+                    days = None
+            book["days_since_read"] = days
+            reading.append(book)
+
+        stale = sorted(
+            (b for b in reading if b["days_since_read"] is not None and b["days_since_read"] >= 7),
+            key=lambda b: b["days_since_read"],
+            reverse=True,
+        )
+        current = sorted(
+            reading,
+            key=lambda b: b["days_since_read"] if b["days_since_read"] is not None else float("inf"),
+        )
+        if stale:
+            book = stale[0]
+            state = "returning"
+            message = f"想继续的话，《{book['title']}》还在上次那一页等你。不用补进度，翻一页也算重新开始。"
+            reason = f"上次读这本书是 {book['days_since_read']} 天前，今天从一页开始就好"
+        elif current:
+            book = current[0]
+            state = "reading"
+            message = f"要不要和我接着读《{book['title']}》？今天读 5 分钟也很好。"
+            reason = "接着上次的进度读一点，不需要完成很多"
+        elif want:
+            book = dict(want)
+            book.update({"book_id": "", "cover": "", "progress": 0, "days_since_read": None})
+            state = "curious"
+            message = f"你之前想读《{book['title']}》。想不想一起翻几页认识它？"
+            reason = "从你标记的想读书单里挑了一本"
+        else:
+            book = None
+            state = "quiet"
+            message = "今天也可以慢慢来。想读的时候，我们就从 5 分钟开始。"
+            reason = ""
+
+        if status["todayDone"]:
+            message = "今天已经给阅读留过时间了，真好。想休息一下也可以，我会在这里等你。"
+
+        recommendation = None
+        if book:
+            recommendation = {
+                "bookId": book["book_id"] or "",
+                "title": book["title"] or "",
+                "author": book["author"] or "",
+                "cover": book["cover"] or "",
+                "progress": book["progress"] or 0,
+                "daysSinceRead": book["days_since_read"],
+                "reason": reason,
+            }
+        return {
+            "state": state,
+            "message": message,
+            "recommendation": recommendation,
+            "todayDone": status["todayDone"],
+            "streak": status["streak"],
+            "gentlePrompt": (
+                "今天已经读过了，谢谢你留给自己的这段时间。"
+                if status["todayDone"] else "今天不必补昨天，愿意翻开一页就很好。"
+            ),
+        }
+
     def _streak(self, user_id: int) -> int:
         with self.lock:
             rows = self.conn.execute(
@@ -448,6 +639,8 @@ class Services:
     # ---------- 提醒 ----------
 
     def create_reminder(self, user_id: int, t: str) -> dict:
+        if not isinstance(t, str) or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", t):
+            raise ServiceError("提醒时间必须为 HH:MM（00:00–23:59）")
         with self.lock:
             cur = self.conn.execute(
                 "INSERT INTO reminders(user_id, time) VALUES(?,?)", (user_id, t)
@@ -527,27 +720,44 @@ class Services:
         for r in rows:
             if r["last_sent_at"] == today:
                 continue
+            companion = self.companion(r["user_id"])
+            if companion["todayDone"]:
+                continue
             with self.lock:
+                already_sent = self.conn.execute(
+                    "SELECT 1 FROM reminders WHERE user_id=? AND last_sent_at=?",
+                    (r["user_id"], today),
+                ).fetchone()
                 openid_row = self.conn.execute(
                     "SELECT openid FROM users WHERE id=?", (r["user_id"],)
                 ).fetchone()
-            if not openid_row:
+            if not openid_row or already_sent:
                 continue
-            self._send_subscribe(openid_row["openid"], now)
+            try:
+                self._send_subscribe(openid_row["openid"], now, companion)
+            except ServiceError as e:
+                print(f"reminder push failed for user {r['user_id']}: {e.msg}")
+                continue
             with self.lock:
                 self.conn.execute(
                     "UPDATE reminders SET last_sent_at=? WHERE id=?", (today, r["id"])
                 )
                 self.conn.commit()
 
-    def _send_subscribe(self, openid: str, when: str) -> None:
+    def _send_subscribe(self, openid: str, when: str, companion: dict = None) -> None:
         token = self._access_token()
+        recommendation = (companion or {}).get("recommendation")
+        if recommendation:
+            title = recommendation["title"][:12]
+            prompt = f"想和你读《{title}》几页，不想读也没关系"
+        else:
+            prompt = "想读的时候，今天翻一页也很好"
         payload = {
             "touser": openid,
             "template_id": self.cfg.wx_template_id,
             "page": "pages/index/index",
             "data": {
-                "thing1": {"value": "该读书啦，保持连续打卡"},
+                "thing1": {"value": prompt[:20]},
                 "time2": {"value": when},
             },
         }
@@ -820,6 +1030,16 @@ def extract_cookie(cookie: str, name: str) -> str:
     return ""
 
 
+def _weread_timestamp(value) -> str:
+    try:
+        timestamp = int(value or 0)
+        if timestamp <= 0:
+            return ""
+        return datetime.datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d")
+    except (TypeError, ValueError, OSError, OverflowError):
+        return ""
+
+
 def _shift_day(date_str: str, delta: int) -> str:
     t = time.strptime(date_str, "%Y-%m-%d")
     return time.strftime("%Y-%m-%d", time.localtime(time.mktime(t) + delta * 86400))
@@ -832,7 +1052,7 @@ def extract_reading_seconds(payload: str) -> int:
         return 0
     if not isinstance(m, dict):
         return 0
-    for key in ("readingTime", "readTime", "totalReadTime", "reading_time", "allReadingTime"):
+    for key in ("totalReadTime", "readingTime", "readTime", "reading_time", "allReadingTime"):
         if key in m:
             try:
                 return int(m[key])

@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS weread_accounts (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id        INTEGER UNIQUE,
   cookie         TEXT,
+  api_key        TEXT,
   wr_vid         TEXT,
   wr_name        TEXT,
   last_sync_at   DATETIME,
@@ -33,6 +34,7 @@ CREATE TABLE IF NOT EXISTS books (
   status    TEXT,
   progress  INTEGER DEFAULT 0,
   added_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  last_read_at TEXT,
   UNIQUE(user_id, book_id)
 );
 CREATE TABLE IF NOT EXISTS checkins (
@@ -110,6 +112,7 @@ def init(path: str) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
     _migrate(conn)
+    conn.execute("UPDATE weread_accounts SET syncing=0 WHERE syncing<>0")
     conn.commit()
     print("db initialized at", path)
     return conn
@@ -122,3 +125,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE weread_accounts ADD COLUMN last_sync_error TEXT")
     if "syncing" not in cols:
         conn.execute("ALTER TABLE weread_accounts ADD COLUMN syncing INTEGER DEFAULT 0")
+    if "api_key" not in cols:
+        conn.execute("ALTER TABLE weread_accounts ADD COLUMN api_key TEXT")
+    book_cols = {r[1] for r in conn.execute("PRAGMA table_info(books)").fetchall()}
+    if "last_read_at" not in book_cols:
+        conn.execute("ALTER TABLE books ADD COLUMN last_read_at TEXT")

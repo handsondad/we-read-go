@@ -4,7 +4,7 @@ import {
   type Book, type LocalData, type ReadingStatus
 } from './core/model'
 import { loadData, parseData, saveData } from './core/storage'
-import { WereadClient } from './core/weread'
+import { GatewayError, WereadClient, assertApiKey } from './core/weread'
 import { notifyError, storage, transport } from './platform'
 
 export const state = reactive({
@@ -21,6 +21,8 @@ export const state = reactive({
 let apiKey = ''
 let active = false
 let reminderTimer: ReturnType<typeof setTimeout> | undefined
+// 今天的提醒写入失败过：本次运行内只报一次错，不每 30 秒重复弹窗。
+let reminderFailedOn = ''
 export const suggestion = computed(() => suggest(state.data, new Date(`${state.today}T12:00:00`)))
 export const todayDone = computed(() => state.data.entries.some((entry) => entry.date === state.today))
 
@@ -45,7 +47,7 @@ function persist(data: LocalData): void {
 
 export function connect(key: string): void {
   if (state.busy) throw new Error('正在同步，请完成后再更换凭证。')
-  new WereadClient(key.trim(), transport)
+  assertApiKey(key.trim())
   apiKey = key.trim()
   state.connected = true
   state.syncMessage = '已设置本次会话的 Key，尚未验证；请点击同步。'
@@ -65,7 +67,12 @@ export async function syncReading(): Promise<void> {
   state.busy = true
   state.syncMessage = '正在直连微信读书，同步期间请保持应用打开…'
   try {
-    const result = await new WereadClient(apiKey, transport).sync()
+    const result = await new WereadClient(apiKey, transport).sync({
+      previous: state.data.books,
+      onProgress: (done, total) => {
+        if (total) state.syncMessage = `正在查询阅读进度 ${done} / ${total}，请保持应用打开…`
+      }
+    })
     // Merge into the latest local state so edits made during the request are not lost.
     persist({
       ...state.data,
@@ -75,12 +82,19 @@ export async function syncReading(): Promise<void> {
     })
     state.syncMessage = [
       `已同步 ${result.books.length} 本电子书。`,
+      ...(result.unchanged ? [`其中 ${result.unchanged} 本最近阅读时间没有变化，沿用本机进度。`] : []),
       ...(result.albumCount || result.hasArticles
         ? [`另有 ${result.albumCount} 个有声专辑${result.hasArticles ? '及文章收藏入口' : ''}，此版不导入。`] : []),
       ...result.warnings
     ].join('\n')
   } catch (error) {
     state.syncMessage = error instanceof Error ? error.message : '同步失败，原书架不变。'
+    if (error instanceof GatewayError && error.authFailed) {
+      // 被官方拒绝的 Key 不再留在内存里，界面也不再显示“已设置”。
+      apiKey = ''
+      state.connected = false
+      state.syncMessage += '\n已从内存清除这个 Key，本地书架保留。'
+    }
     throw error
   } finally {
     state.busy = false
@@ -92,7 +106,8 @@ export function addBook(title: string, author: string, status: ReadingStatus): v
   const book: Book = {
     id: `manual:${Date.now()}:${Math.random().toString(36).slice(2)}`,
     source: 'manual', title: title.trim(), author: author.trim(), cover: '',
-    status, progress: status === 'finished' ? 100 : null, lastReadAt: null, note: ''
+    status, progress: status === 'finished' ? 100 : null, lastReadAt: null, note: '',
+    syncedReadTime: null
   }
   persist({ ...state.data, books: [book, ...state.data.books] })
 }
@@ -138,11 +153,12 @@ export function restoreBackup(raw: string): void {
 function checkReminder(): void {
   if (!active) return
   state.today = localDate()
-  if (!state.storageError && reminderDue(state.data)) {
+  if (!state.storageError && reminderFailedOn !== state.today && reminderDue(state.data)) {
     try {
       persist({ ...state.data, reminder: { ...state.data.reminder, lastShownOn: state.today } })
       uni.showModal({ title: '小书友轻轻提醒', content: suggestion.value.message, showCancel: false })
     } catch (error) {
+      reminderFailedOn = state.today
       notifyError(error)
     }
   }

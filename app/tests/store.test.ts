@@ -97,6 +97,52 @@ describe('application lifecycle and local-first state', () => {
     expect(store.exportBackup()).toBe(previous)
     expect(store.state.busy).toBe(false)
     expect(store.state.syncMessage).toContain('Key')
+    // A rejected Key is dropped from memory, so the UI no longer claims it is set.
+    expect(store.state.connected).toBe(false)
+    mocks.transport.mockClear()
+    await expect(store.syncReading()).rejects.toThrow('Key')
+    expect(mocks.transport).not.toHaveBeenCalled()
+  })
+  it('keeps the Key after a temporary failure', async () => {
+    store.initialize()
+    store.connect('wrk-example')
+    mocks.transport.mockResolvedValue({ status: 503, data: {} })
+    await expect(store.syncReading()).rejects.toThrow()
+    expect(store.state.connected).toBe(true)
+  })
+  it('asks progress only for books read since the previous sync and keeps local edits to the rest', async () => {
+    store.initialize()
+    store.connect('wrk-example')
+    let stamp = 1720000000
+    const messages: string[] = []
+    mocks.transport.mockImplementation(async (request) => {
+      if (request.body.api_name === '/book/getprogress') messages.push(store.state.syncMessage)
+      return {
+        status: 200, data: request.body.api_name === '/shelf/sync' ? { books: [
+          { bookId: 'one', title: 'Remote', readUpdateTime: stamp },
+          { bookId: 'two', title: 'Other', readUpdateTime: 1700000000 }
+        ] } : request.body.api_name === '/book/getprogress'
+          ? { book: { progress: request.body.bookId === 'one' ? 40 : 10 } } : { totalReadTime: 30 }
+      }
+    })
+    await store.syncReading()
+    expect(mocks.transport).toHaveBeenCalledTimes(4)
+    expect(messages[0]).toContain('0 / 2')
+    store.updateBook('weread:two', 'want', 'my note')
+
+    mocks.transport.mockClear()
+    stamp = 1720009999
+    await store.syncReading()
+    const asked = mocks.transport.mock.calls.map(([request]) => request.body)
+      .filter((body) => body.api_name === '/book/getprogress').map((body) => body.bookId)
+    expect(asked).toEqual(['one'])
+    expect(store.state.data.books.find((book) => book.id === 'weread:two')).toMatchObject({
+      status: 'want', progress: 10, note: 'my note', syncedReadTime: 1700000000
+    })
+    expect(store.state.data.books.find((book) => book.id === 'weread:one')).toMatchObject({
+      progress: 40, syncedReadTime: 1720009999
+    })
+    expect(store.state.syncMessage).toContain('1 本最近阅读时间没有变化')
   })
   it('allows a single sync and merges against local changes made while waiting', async () => {
     store.initialize()
@@ -125,7 +171,7 @@ describe('application lifecycle and local-first state', () => {
     data.readingSeconds = 600
     data.books = [{
       id: 'weread:one', source: 'weread', title: 'Remote', author: '', cover: '',
-      status: 'reading', progress: 40, lastReadAt: '2026-09-20', note: 'keep'
+      status: 'reading', progress: 40, lastReadAt: '2026-09-20', note: 'keep', syncedReadTime: null
     }]
     mocks.values.set(DATA_KEY, JSON.stringify(data))
     store.initialize()
@@ -157,5 +203,14 @@ describe('application lifecycle and local-first state', () => {
     store.readToday(null)
     store.resume()
     expect(mocks.modal).toHaveBeenCalledOnce()
+  })
+  it('reports a failed reminder write once instead of on every timer tick', () => {
+    store.initialize()
+    store.setReminder(true, '21:00')
+    mocks.write.mockImplementation(() => { throw new Error('disk full') })
+    store.resume()
+    vi.advanceTimersByTime(120000)
+    expect(mocks.notifyError).toHaveBeenCalledOnce()
+    expect(mocks.modal).not.toHaveBeenCalled()
   })
 })

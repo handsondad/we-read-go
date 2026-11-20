@@ -55,4 +55,17 @@ describe('local data persistence', () => {
       expect(() => parseData(JSON.stringify({ ...initialData(), books: [invalid] }))).toThrow()
     }
   })
+  it('loads data saved before the read stamp existed and validates the stamp', () => {
+    const book = {
+      id: 'weread:one', source: 'weread', title: 'Book', author: '', cover: '',
+      status: 'reading', progress: 40, lastReadAt: null, note: ''
+    }
+    const parse = (fields: object) => parseData(JSON.stringify({ ...initialData(), books: [{ ...book, ...fields }] }))
+    expect(parse({}).books[0].syncedReadTime).toBeNull()
+    expect(parse({ syncedReadTime: 1720000000 }).books[0].syncedReadTime).toBe(1720000000)
+    expect(parse({ syncedReadTime: 0 }).books[0].syncedReadTime).toBe(0)
+    for (const invalid of [-1, 1.5, '1720000000']) {
+      expect(() => parse({ syncedReadTime: invalid })).toThrow()
+    }
+  })
 })

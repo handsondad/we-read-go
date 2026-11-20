@@ -22,7 +22,10 @@ function book(value: unknown): value is Book {
     typeof value.status === 'string' && ['want', 'reading', 'finished'].includes(value.status) &&
     (value.progress === null || (Number.isInteger(value.progress) &&
       Number(value.progress) >= 0 && Number(value.progress) <= 100)) &&
-    (value.lastReadAt === null || validDate(value.lastReadAt))
+    (value.lastReadAt === null || validDate(value.lastReadAt)) &&
+    // 旧版本存下的数据和备份没有这个字段，按 null 处理。
+    (value.syncedReadTime === undefined || value.syncedReadTime === null ||
+      (Number.isSafeInteger(value.syncedReadTime) && Number(value.syncedReadTime) >= 0))
 }
 
 function entry(value: unknown): value is ReadingEntry {
@@ -52,7 +55,8 @@ export function parseData(raw: string): LocalData {
     books: value.books.map((item) => ({
       id: item.id, source: item.source, title: item.title, author: item.author,
       cover: item.cover, status: item.status, progress: item.progress,
-      lastReadAt: item.lastReadAt, note: item.note
+      lastReadAt: item.lastReadAt, note: item.note,
+      syncedReadTime: item.syncedReadTime ?? null
     })),
     entries: value.entries.map((entry) => ({ date: entry.date, bookId: entry.bookId })),
     lastSyncAt: value.lastSyncAt,

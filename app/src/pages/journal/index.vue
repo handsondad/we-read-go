@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { onReachBottom } from '@dcloudio/uni-app'
 import { state } from '../../store'
+import { usePaged } from '../../paging'
 
 const readingTime = computed(() => {
   const seconds = state.data.readingSeconds
@@ -9,10 +11,13 @@ const readingTime = computed(() => {
 })
 const finished = computed(() => state.data.books.filter((book) => book.status === 'finished').length)
 const entries = computed(() => [...state.data.entries].sort((a, b) => b.date.localeCompare(a.date)))
+const { visible, remaining, more } = usePaged(() => entries.value)
+onReachBottom(more)
+const titles = computed(() => new Map(state.data.books.map((book) => [book.id, book.title])))
 const room = computed(() => state.data.entries.length >= 20 ? '书架旁添了一盆小绿植'
   : state.data.entries.length >= 5 ? '阅读角里亮起了一盏灯' : '小书友在阅读角等你')
 function bookTitle(id: string | null) {
-  return state.data.books.find((book) => book.id === id)?.title ?? '给自己留了一点阅读时间'
+  return (id === null ? undefined : titles.value.get(id)) ?? '给自己留了一点阅读时间'
 }
 </script>
 
@@ -32,10 +37,11 @@ function bookTitle(id: string | null) {
       <text class="body">微信读书累计阅读：{{ readingTime }}</text>
       <text class="small">时长来自上次官方同步，不是本机打卡推算。</text>
     </view>
-    <view v-for="entry in entries" :key="entry.date" class="card">
+    <view v-for="entry in visible" :key="entry.date" class="card">
       <text class="eyebrow">{{ entry.date }}</text>
       <text class="body">{{ bookTitle(entry.bookId) }}</text>
     </view>
+    <button v-if="remaining" class="secondary" @click="more">再显示一些（还有 {{ remaining }} 天）</button>
     <view v-if="!entries.length" class="empty">足迹还没开始。读完几页，回来告诉小书友就好。</view>
   </view>
 </template>

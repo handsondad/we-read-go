@@ -10,6 +10,11 @@ export interface Book {
   progress: number | null
   lastReadAt: string | null
   note: string
+  /**
+   * 上次成功取得进度时，微信读书书架里这本书的 readUpdateTime（Unix 秒）。
+   * 下次同步时该值未变，说明远端没有新的阅读，可以不再逐本查询进度。
+   */
+  syncedReadTime: number | null
 }
 
 export interface ReadingEntry {
@@ -112,6 +117,10 @@ export function recordReading(data: LocalData, bookId: string | null, now = new 
   }
 }
 
+/**
+ * incoming 里 progress 为 null 表示“这次没有新的进度信息”（查询失败，或最近阅读时间未变而跳过），
+ * 此时保留本机的状态与进度。
+ */
 export function mergeShelf(existing: Book[], incoming: Book[]): Book[] {
   const previous = new Map(existing.map((book) => [book.id, book]))
   const synced = incoming.map((book) => {

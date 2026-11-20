@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { onReachBottom } from '@dcloudio/uni-app'
 import { state, addBook, updateBook, removeBook } from '../../store'
 import type { Book, ReadingStatus } from '../../core/model'
+import { usePaged } from '../../paging'
 import { notifyError } from '../../platform'
 
 const title = ref('')
@@ -13,6 +15,9 @@ const tab = ref<ReadingStatus>('want')
 const labels = { want: '想读', reading: '在读', finished: '读完' }
 const statuses: ReadingStatus[] = ['want', 'reading', 'finished']
 const books = computed(() => state.data.books.filter((book) => book.status === tab.value))
+const { visible, remaining, more, reset } = usePaged(() => books.value)
+watch(tab, reset)
+onReachBottom(more)
 
 function save() {
   try {
@@ -73,13 +78,14 @@ function remove(book: Book) {
       <button v-for="item in statuses" :key="item" size="mini" :class="tab === item ? 'selected' : 'chip'" @click="tab = item">{{ labels[item] }}</button>
     </view>
     <text class="small">微信读书书目的状态可能被下次真实同步更新；手写感想会保留。</text>
-    <view v-for="book in books" :key="book.id" class="card">
+    <view v-for="book in visible" :key="book.id" class="card">
       <text class="title">{{ book.title }}</text>
       <text class="muted">{{ book.author }}</text>
       <text v-if="book.note" class="body">{{ book.note }}</text>
       <button class="secondary" @click="edit(book)">状态与感想</button>
       <button class="danger" @click="remove(book)">从本机移除</button>
     </view>
+    <button v-if="remaining" class="secondary" @click="more">再显示一些（还有 {{ remaining }} 本）</button>
     <view v-if="!books.length" class="empty">这一格暂时空着，也很好。</view>
   </view>
 </template>

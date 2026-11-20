@@ -7,7 +7,7 @@ import {
 const now = new Date(2026, 8, 24, 21, 0)
 const book = (fields: Partial<Book> = {}): Book => ({
   id: 'weread:one', source: 'weread', title: 'A book', author: '', cover: '',
-  status: 'reading', progress: 10, lastReadAt: '2026-09-18', note: '', ...fields
+  status: 'reading', progress: 10, lastReadAt: '2026-09-18', note: '', syncedReadTime: null, ...fields
 })
 
 describe('gentle reading rules', () => {
@@ -56,6 +56,15 @@ describe('gentle reading rules', () => {
     expect(merged[0]).toMatchObject({ progress: 100, status: 'finished', note: 'keep', lastReadAt: '2026-09-24' })
     expect(merged).toHaveLength(2)
     expect(mergeShelf([old], [book({ progress: 1 })])[0].progress).toBe(1)
+  })
+  it('keeps local status and progress for books skipped as unchanged, and tracks the read stamp', () => {
+    const old = book({ status: 'want', progress: 40, syncedReadTime: 1720000000 })
+    const skipped = book({ title: 'Renamed', progress: null, status: 'reading', syncedReadTime: 1720000000 })
+    expect(mergeShelf([old], [skipped])[0]).toMatchObject({
+      title: 'Renamed', status: 'want', progress: 40, syncedReadTime: 1720000000
+    })
+    const failed = book({ progress: null, syncedReadTime: null })
+    expect(mergeShelf([old], [failed])[0]).toMatchObject({ progress: 40, syncedReadTime: null })
   })
   it('reminds at or after the configured minute, once per day, excluding read days', () => {
     const data = initialData()

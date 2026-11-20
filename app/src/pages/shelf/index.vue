@@ -1,12 +1,20 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { onReachBottom } from '@dcloudio/uni-app'
 import { state, syncReading, readToday } from '../../store'
 import { daysSince } from '../../core/model'
+import { usePaged } from '../../paging'
 import { notifyError, openReading } from '../../platform'
 
 const query = ref('')
-const books = computed(() => state.data.books.filter((book) =>
-  `${book.title} ${book.author}`.includes(query.value.trim())))
+const books = computed(() => {
+  const keyword = query.value.trim().toLowerCase()
+  return keyword ? state.data.books.filter((book) =>
+    `${book.title} ${book.author}`.toLowerCase().includes(keyword)) : state.data.books
+})
+const { visible, remaining, more, reset } = usePaged(() => books.value)
+watch(query, reset)
+onReachBottom(more)
 const labels = { want: '想读', reading: '在读', finished: '读完' }
 const lastSync = computed(() => state.data.lastSyncAt
   ? new Date(state.data.lastSyncAt).toLocaleString() : '还没有同步')
@@ -33,7 +41,7 @@ function record(id: string) {
       <text v-if="state.syncMessage" class="small sync-message" aria-live="polite">{{ state.syncMessage }}</text>
     </view>
     <input v-model="query" class="input" placeholder="搜索书名或作者" maxlength="80" />
-    <view v-for="book in books" :key="book.id" class="card">
+    <view v-for="book in visible" :key="book.id" class="card">
       <view class="row">
         <image v-if="book.cover" class="book-cover" :src="book.cover" mode="aspectFill" />
         <view v-else class="book-cover cover-placeholder">书</view>
@@ -51,6 +59,7 @@ function record(id: string) {
       <button class="secondary" @click="openReading(book)">打开阅读</button>
       <button class="secondary" @click="record(book.id)">今天读过这本</button>
     </view>
+    <button v-if="remaining" class="secondary" @click="more">再显示一些（还有 {{ remaining }} 本）</button>
     <view v-if="!books.length" class="empty">{{ query ? '没有找到这本书，换个关键词看看。' : '还没有书。可以连接微信读书，也可以从本地书单开始。' }}</view>
   </view>
 </template>

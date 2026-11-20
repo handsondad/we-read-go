@@ -96,6 +96,6 @@ function restore() {
         <button class="danger" :disabled="!backup || state.busy" @click="restore">校验并恢复这份备份</button>
       </view>
     </view>
-    <text class="small">0.1 · 本地优先验证版。旧版小程序和 Python 服务保留，但本应用不依赖它们。</text>
+    <text class="small">0.1 · 本地优先验证版。不依赖任何自建服务。</text>
   </view>
 </template>

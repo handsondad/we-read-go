@@ -1,14 +1,4 @@
-"""微信读书网页端非官方接口客户端。
-
-重要：这些接口不是官方公开 API，随时可能随网页改版失效。
-本模块被设计为「可降级」：调用失败时由上层 service 决定如何处理（不影响核心打卡/提醒）。
-
-稳定性设计：
-- 瞬时网络错误（超时、连接中断、5xx）自动重试并退避，避免偶发抖动导致整次同步失败。
-- 不跟随 302 跳转，从而能识别「Cookie 失效被重定向到登录页」的情况。
-- 响应校验：非 JSON（登录页 HTML）、错误码 JSON 均视为 Cookie 失效，抛出可被上层捕获的 WereadError。
-- 仅依赖标准库 urllib，无需第三方 HTTP 客户端。
-"""
+"""微信读书客户端：优先使用官方 Skills API，保留旧版网页 Cookie 客户端作兼容。"""
 import json
 import socket
 import time
@@ -17,18 +7,23 @@ import urllib.parse
 import urllib.request
 
 BASE = "https://weread.qq.com/api"
+GATEWAY = "https://i.weread.qq.com/api/agent/gateway"
+SKILL_VERSION = "1.0.3"
 _TIMEOUT = 10          # 单次请求超时（秒）
 _RETRIES = 2           # 瞬时错误重试次数（共 1+2=3 次尝试）
 _BACKOFF = 1.0         # 重试退避基数（秒），第 n 次等待 n*BACKOFF
 
 
 class WereadError(Exception):
-    """可被上层捕获的微信读书错误。cookie_invalid 表示需用户重新登录。"""
+    """可被上层捕获的微信读书错误。"""
 
-    def __init__(self, msg: str, cookie_invalid: bool = False):
+    def __init__(self, msg: str, cookie_invalid: bool = False, api_key_invalid: bool = False,
+                 upgrade_required: bool = False):
         super().__init__(msg)
         self.msg = msg
         self.cookie_invalid = cookie_invalid
+        self.api_key_invalid = api_key_invalid
+        self.upgrade_required = upgrade_required
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -38,6 +33,70 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 _opener = urllib.request.build_opener(_NoRedirect())
+
+
+class ApiKeyClient:
+    """微信读书官方 Skills API 客户端。"""
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key.strip()
+
+    def _call(self, api_name: str, **params) -> dict:
+        body = {"api_name": api_name, **params, "skill_version": SKILL_VERSION}
+        req = urllib.request.Request(
+            GATEWAY,
+            data=json.dumps(body).encode("utf-8"),
+            headers={
+                "Authorization": "Bearer " + self.api_key,
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                raise WereadError("微信读书 API Key 无效或已过期", api_key_invalid=True)
+            raise WereadError(f"微信读书官方接口异常 (HTTP {e.code})")
+        except (urllib.error.URLError, socket.timeout, TimeoutError) as e:
+            raise WereadError(f"无法连接微信读书官方接口：{e}")
+        except (UnicodeDecodeError, json.JSONDecodeError) as e:
+            raise WereadError(f"微信读书官方接口返回无效数据：{e}")
+
+        if not isinstance(payload, dict):
+            raise WereadError("微信读书官方接口返回格式异常")
+        upgrade = payload.get("upgrade_info")
+        if upgrade:
+            message = upgrade.get("message") if isinstance(upgrade, dict) else None
+            raise WereadError(message or "请更新微信读书 Skills 后重试", upgrade_required=True)
+        if payload.get("errcode"):
+            raise WereadError(payload.get("errmsg") or "微信读书官方接口调用失败")
+        return payload
+
+    def shelf(self) -> list:
+        payload = self._call("/shelf/sync")
+        if not isinstance(payload.get("books"), list):
+            raise WereadError("微信读书书架数据缺少 books 数组，未更新已有书架")
+        books = []
+        for book in payload.get("books", []):
+            item = dict(book)
+            item["status"] = "finished" if item.get("finishReading") == 1 else "reading"
+            books.append(item)
+        return books
+
+    def read_progress(self, book_id: str) -> dict:
+        payload = self._call("/book/getprogress", bookId=book_id)
+        book = payload.get("book")
+        if not isinstance(book, dict) or not isinstance(book.get("progress"), int):
+            raise WereadError("微信读书未返回有效阅读进度")
+        if not 0 <= book["progress"] <= 100:
+            raise WereadError("微信读书阅读进度超出有效范围")
+        return book
+
+    def read_data(self) -> dict:
+        return self._call("/readdata/detail", mode="overall")
 
 
 def _is_retryable(e: Exception) -> bool:
@@ -51,6 +110,8 @@ def _is_retryable(e: Exception) -> bool:
 
 
 class Client:
+    """旧版网页端接口客户端，可能随网页改版失效。"""
+
     def __init__(self, cookie: str, ua: str):
         self.cookie = cookie
         self.ua = ua
@@ -126,11 +187,15 @@ class Client:
         return {b["bookId"]: b.get("noteCount", 0) for b in payload.get("books", [])}
 
     def read_info(self, book_id: str) -> int:
-        """获取单本书的阅读进度（0-100）。失败返回 0，不影响整体同步。"""
+        """获取旧版单本书进度，失败交由业务层保留已有数据。"""
+        payload = json.loads(self._get("/book/readinfo", {"bookId": book_id}))
         try:
-            return int(json.loads(self._get("/book/readinfo", {"bookId": book_id})).get("readingProgress", 0))
-        except Exception:
-            return 0
+            progress = int(payload["readingProgress"])
+        except (KeyError, TypeError, ValueError):
+            raise WereadError("微信读书未返回有效阅读进度")
+        if not 0 <= progress <= 100:
+            raise WereadError("微信读书阅读进度超出有效范围")
+        return progress
 
     def read_data(self) -> bytes:
         """拉取阅读统计（时长、天数等），原样返回供上层存储。"""

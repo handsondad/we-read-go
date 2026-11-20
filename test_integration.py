@@ -4,10 +4,10 @@
 心得帖与点赞、共读营(创建/加入/详情)、资料(昵称头像)、阅读报告、榜单(id 字段)。
 """
 import os
-import shutil
 import socket
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.request
@@ -16,7 +16,7 @@ import urllib.error
 import json as _json
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-DB = os.path.join(tempfile.gettempdir(), "we_read_it.db")
+DB = ""
 PORT = 8099
 BASE = f"http://127.0.0.1:{PORT}"
 KEY = "test-key-please-change-32bytes123456"
@@ -58,8 +58,9 @@ def call(method, path, token="", body=None):
 
 
 def main():
-    if os.path.exists(DB):
-        os.remove(DB)
+    global DB
+    workspace = tempfile.TemporaryDirectory(prefix="we-read-test-")
+    DB = os.path.join(workspace.name, "integration.db")
     global PORT
     PORT = free_port()
     global BASE
@@ -75,7 +76,7 @@ def main():
         "WX_TEMPLATE_ID": "",
     })
     proc = subprocess.Popen(
-        ["python", "backend/server.py"],
+        [sys.executable, os.path.join("backend", "server.py")],
         cwd=ROOT,
         env=env,
         stdout=subprocess.PIPE,
@@ -84,7 +85,13 @@ def main():
     try:
         # 等待健康
         for _ in range(50):
-            code, _ = call("GET", "/health")
+            try:
+                code, _ = call("GET", "/health")
+            except urllib.error.URLError:
+                if proc.poll() is not None:
+                    raise RuntimeError("服务启动失败：" + proc.stdout.read().decode("utf-8", "replace"))
+                time.sleep(0.2)
+                continue
             if code == 200:
                 break
             time.sleep(0.2)
@@ -107,6 +114,24 @@ def main():
         # 1. 鉴权：无 token -> 401
         code, _ = call("GET", "/api/checkin")
         check(code == 401, "未带 token 应 401")
+        code, _ = call("GET", "/api/companion")
+        check(code == 401, "小书友接口要求登录")
+        code, config = call("GET", "/api/reminders/config", tok1)
+        check(code == 200 and config == {"enabled": False, "templateId": ""},
+              "未配置模板时明确显示不能推送")
+        code, _ = call("POST", "/api/weread/api-key", tok1, {"apiKey": []})
+        check(code == 400, "拒绝非字符串 API Key")
+        code, _ = call("POST", "/api/sync", tok2)
+        check(code == 400, "未绑定时同步返回可操作错误")
+
+        # 1a. 官方微信读书 API Key 与小书友推荐
+        code, saved = call("POST", "/api/weread/api-key", tok1, {"apiKey": "wrk-test-integration"})
+        check(code == 200 and saved["ok"] is True, "官方 API Key 可安全保存")
+        code, weread_status = call("GET", "/api/weread/status", tok1)
+        check(code == 200 and weread_status["hasApiKey"] is True, "同步状态只暴露 API Key 配置状态")
+        code, companion = call("GET", "/api/companion", tok1)
+        check(code == 200 and companion["state"] == "quiet" and "gentlePrompt" in companion,
+              "小书友在空书架时给出无压力提示")
 
         # 2. 打卡状态
         code, st = call("GET", "/api/checkin", tok1)
@@ -121,6 +146,8 @@ def main():
         check(code == 200 and st["todayDone"] is True and st["streak"] == 1, "打卡后 streak=1")
 
         # 5. 提醒
+        code, _ = call("POST", "/api/reminders", tok1, {"time": "25:61"})
+        check(code == 400, "无效提醒时间应 400")
         code, rm = call("POST", "/api/reminders", tok1, {"time": "21:30"})
         check(code == 200 and rm["id"] > 0, "创建提醒成功")
         code, rms = call("GET", "/api/reminders", tok1)
@@ -223,10 +250,11 @@ def main():
         proc.terminate()
         try:
             proc.wait(timeout=5)
-        except Exception:
+        except subprocess.TimeoutExpired:
             proc.kill()
-        if os.path.exists(DB):
-            os.remove(DB)
+            proc.wait(timeout=5)
+        proc.stdout.close()
+        workspace.cleanup()
 
 
 if __name__ == "__main__":

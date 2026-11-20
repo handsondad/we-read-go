@@ -15,6 +15,7 @@
       <text class="title">{{item.title}}</text>
       <text class="author">{{item.author}}</text>
       <text class="prog">{{item.statusText}} · {{item.progress}}%</text>
+      <text class="stale" wx:if="{{item.readHint}}">{{item.readHint}}</text>
     </view>
   </view>
 

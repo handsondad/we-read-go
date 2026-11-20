@@ -20,3 +20,10 @@ env/
 # IDE
 .idea/
 .vscode/
+
+# uni-app
+app/node_modules/
+app/dist/
+app/coverage/
+app/*.tsbuildinfo
+app/.env*

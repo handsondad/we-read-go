@@ -15,7 +15,7 @@ Page({
     stars: [1, 2, 3, 4, 5]
   },
   onShow() {
-    app.login().then(() => this.load())
+    app.login().then(() => this.load()).catch(() => {})
   },
   load() {
     request('/api/booklists', 'GET')

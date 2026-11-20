@@ -7,7 +7,7 @@ from dataclasses import dataclass
 class Config:
     addr: str            # 监听地址 host:port
     db_path: str         # SQLite 文件路径
-    encrypt_key: str     # Cookie 加密密钥（空则由 crypto 模块自动生成并持久化）
+    encrypt_key: str     # API Key / Cookie 加密种子，必须显式配置并在重启时保持不变
     wx_appid: str        # 微信小程序 AppID
     wx_appsecret: str    # 微信小程序 AppSecret
     wx_template_id: str  # 订阅消息模板 ID

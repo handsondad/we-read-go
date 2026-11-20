@@ -13,15 +13,25 @@
 
   <view class="card">
     <text class="h">微信读书同步</text>
-    <text class="tip">{{status.hasCookie ? '已绑定' : '未绑定：粘贴网页端 Cookie 后点同步书架'}}</text>
+    <text class="tip">{{status.hasApiKey ? '已保存官方 API Key，请到书架同步验证' : (status.hasCookie ? '旧版 Cookie 已保存' : '尚未绑定：建议使用微信读书官方 API Key')}}</text>
+    <text class="tip">API Key 只加密保存在本服务端，用于读取你的书架和阅读进度。</text>
     <text class="tip" wx:if="{{status.lastSyncAt}}">上次同步：{{status.lastSyncAt}}</text>
-    <text class="tip err" wx:if="{{status.lastSyncError}}">同步出错：{{status.lastSyncError}}</text>
-    <textarea class="cookie" placeholder="从 weread.qq.com 复制的 Cookie" value="{{cookie}}" bindinput="onCookie" />
-    <button class="save" size="mini" bindtap="saveCookie">保存 Cookie</button>
+    <text class="tip err" wx:if="{{status.lastSyncError}}">同步提示：{{status.lastSyncError}}</text>
+    <input class="api-key" password="true" placeholder="粘贴微信读书官方 API Key（wrk-...）" value="{{apiKey}}" bindinput="onApiKey" />
+    <button class="save" size="mini" bindtap="saveApiKey">安全保存 API Key</button>
+    <view class="legacy-toggle" bindtap="toggleLegacy">{{legacyExpanded ? '收起旧版 Cookie 兼容设置' : '仍想使用旧版 Cookie？'}}</view>
+    <view wx:if="{{legacyExpanded}}" class="legacy">
+      <text class="tip">旧版方式依赖网页接口，可能随时失效；官方 API Key 优先使用。</text>
+      <textarea class="cookie" placeholder="从 weread.qq.com 复制的 Cookie" value="{{cookie}}" bindinput="onCookie" />
+      <button class="save" size="mini" bindtap="saveCookie">保存旧版 Cookie</button>
+    </view>
   </view>
 
   <view class="card">
     <text class="h">阅读提醒</text>
+    <text class="tip">提醒是轻轻邀请，不会因漏读责备你；读几页也值得庆祝。</text>
+    <text class="tip">{{reminderConfig.enabled ? '保存时间后，请授权订阅消息。普通订阅通常仅允许发送一次，需要后续再次授权。' : '服务端尚未配置推送，目前只能保存提醒时间，不能收到微信消息。'}}</text>
+    <button class="save" size="mini" bindtap="authorizeReminder">授权下一次微信提醒</button>
     <view class="rem" wx:for="{{reminders}}" wx:key="id">
       <text>{{item.time}} · {{item.enabled ? '已开启' : '已关闭'}}</text>
       <switch checked="{{item.enabled}}" bindchange="toggle" data-id="{{item.id}}" />

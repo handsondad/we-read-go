@@ -9,13 +9,21 @@ Page({
     syncing: false
   },
   onShow() {
+    this._hidden = false
     this.load()
+    request('/api/weread/status', 'GET').then((status) => {
+      if (status.syncing && !this._hidden) {
+        this.setData({ syncing: true })
+        this._pollSync()
+      }
+    }).catch(() => {})
   },
   load() {
     const STATUS = { reading: '在读', finished: '读完', want: '想读' }
     request('/api/books', 'GET')
       .then((d) => this.setData({ books: d.map((b) => Object.assign({}, b, {
-        statusText: STATUS[b.status] || b.status
+        statusText: STATUS[b.status] || b.status,
+        readHint: b.daysSinceRead >= 7 ? `上次阅读是 ${b.daysSinceRead} 天前，今天从一页开始就好` : ''
       })) }))
       .catch(() => {})
   },
@@ -37,26 +45,45 @@ Page({
       })
   },
   _pollSync() {
-    this._syncTimer = setInterval(() => {
+    if (this._hidden || this._syncTimer) return
+    this._pollStartedAt = this._pollStartedAt || Date.now()
+    this._syncTimer = setTimeout(() => {
+      this._syncTimer = null
+      if (Date.now() - this._pollStartedAt > 10 * 60 * 1000) {
+        this._stopPolling()
+        wx.showToast({ title: '同步耗时较长，请稍后重新进入书架查看', icon: 'none' })
+        return
+      }
       request('/api/weread/status', 'GET')
         .then((s) => {
+          if (this._hidden) return
           if (!s.syncing) {
-            if (this._syncTimer) clearInterval(this._syncTimer)
-            this._syncTimer = null
-            this.setData({ syncing: false })
+            this._stopPolling()
             this.load()
             if (s.lastSyncError) {
-              wx.showToast({ title: '同步失败：' + s.lastSyncError, icon: 'none' })
+              wx.showToast({ title: '同步提示：' + s.lastSyncError, icon: 'none' })
             } else {
               wx.showToast({ title: '同步完成' })
             }
+          } else {
+            this._pollSync()
           }
         })
-        .catch(() => {})  // 轮询失败不打断，继续等待
+        .catch(() => this._stopPolling())
     }, 1200)
   },
+  _stopPolling() {
+    if (this._syncTimer) clearTimeout(this._syncTimer)
+    this._syncTimer = null
+    this._pollStartedAt = null
+    this.setData({ syncing: false })
+  },
+  onHide() {
+    this._hidden = true
+    this._stopPolling()
+  },
   onUnload() {
-    if (this._syncTimer) clearInterval(this._syncTimer)
+    this.onHide()
   },
   onTitle(e) {
     this.setData({ newTitle: e.detail.value })

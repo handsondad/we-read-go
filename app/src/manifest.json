@@ -1,0 +1,22 @@
+{
+  "name": "小书友",
+  "appid": "",
+  "description": "本地优先的微信读书阅读伙伴，无自建后端",
+  "versionName": "0.1.0",
+  "versionCode": "10",
+  "transformPx": false,
+  "vueVersion": "3",
+  "app-plus": {
+    "usingComponents": true,
+    "compilerVersion": 3,
+    "modules": {},
+    "distribute": {
+      "android": {
+        "permissions": ["<uses-permission android:name=\"android.permission.INTERNET\"/>"]
+      },
+      "ios": {}
+    }
+  },
+  "h5": { "title": "小书友 · 阅读伙伴", "router": { "mode": "hash" } },
+  "uniStatistics": { "enable": false }
+}

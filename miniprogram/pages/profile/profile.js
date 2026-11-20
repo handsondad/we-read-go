@@ -5,15 +5,23 @@ Page({
   data: {
     status: {},
     reminders: [],
+    apiKey: '',
     cookie: '',
+    legacyExpanded: false,
+    reminderConfig: { enabled: false, templateId: '' },
     nickname: '',
     avatar: '',
     newTime: '21:00'
   },
   onShow() {
-    this.loadStatus()
-    this.loadReminders()
-    this.loadProfile()
+    app.login().then(() => {
+      this.loadStatus()
+      this.loadReminders()
+      this.loadProfile()
+      request('/api/reminders/config', 'GET')
+        .then((reminderConfig) => this.setData({ reminderConfig }))
+        .catch(() => {})
+    }).catch(() => {})
   },
   loadProfile() {
     request('/api/profile', 'GET')
@@ -44,6 +52,25 @@ Page({
   onCookie(e) {
     this.setData({ cookie: e.detail.value })
   },
+  onApiKey(e) {
+    this.setData({ apiKey: e.detail.value })
+  },
+  saveApiKey() {
+    if (!this.data.apiKey.trim()) {
+      wx.showToast({ title: '请先粘贴 API Key', icon: 'none' })
+      return
+    }
+    request('/api/weread/api-key', 'POST', { apiKey: this.data.apiKey })
+      .then(() => {
+        this.setData({ apiKey: '' })
+        wx.showToast({ title: '已加密保存' })
+        this.loadStatus()
+      })
+      .catch((e) => wx.showToast({ title: (e && e.error) || '保存失败', icon: 'none' }))
+  },
+  toggleLegacy() {
+    this.setData({ legacyExpanded: !this.data.legacyExpanded })
+  },
   saveCookie() {
     request('/api/weread/cookie', 'POST', { cookie: this.data.cookie })
       .then(() => {
@@ -57,8 +84,29 @@ Page({
   },
   addReminder() {
     request('/api/reminders', 'POST', { time: this.data.newTime })
-      .then(() => this.loadReminders())
+      .then(() => {
+        this.loadReminders()
+        wx.showToast({ title: '时间已保存，推送需授权', icon: 'none' })
+      })
       .catch(() => {})
+  },
+  authorizeReminder() {
+    const config = this.data.reminderConfig
+    if (!config.enabled) {
+      wx.showToast({ title: '服务端尚未配置订阅消息模板', icon: 'none' })
+      return
+    }
+    wx.requestSubscribeMessage({
+      tmplIds: [config.templateId],
+      success: (result) => {
+        wx.showModal({
+          title: result[config.templateId] === 'accept' ? '已获得本次订阅授权' : '未获得订阅授权',
+          content: '普通订阅消息通常是一次性授权，并不代表每天都能推送；后续提醒需要再次授权。',
+          showCancel: false
+        })
+      },
+      fail: () => wx.showToast({ title: '订阅授权失败，请在微信中重试', icon: 'none' })
+    })
   },
   toggle(e) {
     const id = e.currentTarget.dataset.id

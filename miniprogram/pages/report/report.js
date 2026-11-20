@@ -7,7 +7,7 @@ Page({
     readingText: ''
   },
   onShow() {
-    app.login().then(() => this.load())
+    app.login().then(() => this.load()).catch(() => {})
   },
   load() {
     request('/api/report', 'GET')

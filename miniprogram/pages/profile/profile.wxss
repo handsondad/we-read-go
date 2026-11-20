@@ -27,6 +27,22 @@
   box-sizing: border-box;
   font-size: 24rpx;
 }
+.api-key {
+  margin-top: 20rpx;
+  padding: 18rpx;
+  background: #f5f5f5;
+  border-radius: 8rpx;
+  box-sizing: border-box;
+  font-size: 25rpx;
+}
+.legacy-toggle {
+  margin-top: 22rpx;
+  color: #947149;
+  font-size: 24rpx;
+}
+.legacy {
+  margin-top: 14rpx;
+}
 .save {
   background: #07c160;
   color: #fff;
